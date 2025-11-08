@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from nicegui import ui
 
-from agent_service import run_plan_execute, run_prompt
+from agent_service import run_plan_execute
 
 ui.colors(primary="#000000")
 ui.button.default_props('unelevated')
 ui.card.default_props('flat bordered')
-ui.toggle.default_props('unelevated')
 
 with ui.column().classes(
     'min-h-screen w-full items-center justify-center px-4 py-16 box-border'
@@ -32,11 +31,7 @@ with ui.column().classes(
                         ask_button.enable()
                         return
 
-                    stream = (
-                        run_plan_execute(text)
-                        if mode.value == 'plan'
-                        else run_prompt(text)
-                    )
+                    stream = run_plan_execute(text)
 
                     chunks: list[str] = []
                     try:
@@ -54,15 +49,6 @@ with ui.column().classes(
 
         ui.separator()
         with ui.card_actions().classes('w-full items-center justify-between gap-4 p-4'):
-
-            # ⬇️ Tiny mode switch; default is your current behaviour
-            mode = ui.toggle(
-                options={
-                    'simple': 'Simple',
-                    'plan': 'Complex',
-                },
-                value='plan',
-            ).props('padding="xs sm"').classes('border')
 
             ask_button = ui.button("Ask", on_click=on_submit).props('padding="xs md"').classes('ml-auto')
 

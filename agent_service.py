@@ -1,14 +1,26 @@
-"""Agent service: Manager orchestrates Planner + Executor with optional simple chat."""
+"""Agent service: Manager orchestrates Planner + Executor."""
 
 from __future__ import annotations
 
 from typing import AsyncIterator, List, Optional
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
 # NOTE: adjust imports below if your SDK package path differs
 from agents import Agent, Runner, ModelSettings, WebSearchTool, CodeInterpreterTool
-from agents.stream_events import RawResponsesStreamEvent
+from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent
+from agents.extensions.handoff_prompt import prompt_with_handoff_instructions
+from agents.extensions import handoff_filters
+from agents import handoff
+
+from openai.types.shared import Reasoning
+
+load_dotenv()
+
+default_model = 'gpt-5-mini'
+# default_model_settings = ModelSettings(reasoning=Reasoning(effort="minimal"), verbosity="low")
+default_model_settings = ModelSettings(reasoning=Reasoning(effort="medium"), tool_choice="auto", parallel_tool_calls=True)
 
 # ---------------------------
 # Structured output models
@@ -28,32 +40,23 @@ class TaskPlan(BaseModel):
     steps: List[PlanStep]
 
 # ---------------------------
-# Base assistant (simple chat)
-# ---------------------------
-
-assistant = Agent(
-    name="Assistant",
-    instructions=(
-        "You are a concise, helpful assistant. "
-        "Answer clearly and avoid unnecessary verbosity."
-    ),
-    model="gpt-4.1-mini",
-)
-
-# ---------------------------
 # Planner (outputs a typed plan)
 # ---------------------------
 
+planner_prompt = """
+Break the user's objective into concrete steps. 
+Prefer web_search for facts and code for calculations or data analysis. 
+Keep each step crisp, focused on a deliverable. Make the smallest number of steps possible (maximum 5). 
+
+**IMPORTANT:** Once the plan is produced, always call transfer_to_manager() tool."
+""".strip()
+
 planner = Agent(
     name="Planner",
-    instructions=(
-        "Break the user's objective into concrete steps. "
-        "Prefer web_search for facts and code for calculations or data analysis. "
-        "Keep each step crisp, focused on a deliverable."
-        "Make the smallest number of steps possible, no more than 5 steps in total."
-    ),
-    model="gpt-4.1-mini",
-    output_type=TaskPlan,  # <- Pydantic-typed output
+    instructions=planner_prompt,
+    model=default_model,
+    model_settings=ModelSettings(reasoning=Reasoning(effort="medium")),
+    output_type=TaskPlan,
 )
 
 # ---------------------------
@@ -74,13 +77,13 @@ _base_tools = [
 executor = Agent(
     name="Executor",
     instructions=(
-        "Execute the given step. Use tools if helpful. "
+        "Execute provided task. Use tools if helpful. "
         "For web results, include reputable sources with titles and URLs. "
         "For code, print concise, human-readable outputs."
     ),
-    model="gpt-4.1-mini",
+    model=default_model,
+    model_settings=ModelSettings(reasoning=Reasoning(effort="low"), verbosity="low"),
     tools=_base_tools,
-    model_settings=ModelSettings(tool_choice="auto"),
 )
 
 
@@ -101,23 +104,28 @@ manager_prompt = """
 You are a helpful assistant, who is responsible for helping the user in the most efficient way without being annoying.
 
 Approach:
-- Read the user's request, decide if it is simple, and respond directly when possible. 
-- When additional structure will help, call the Planner tool and provide the full context so it can generate completion plan for the user query.
-- Follow the plan as outlined.
-- If specific steps can be run in parallel or have significant complexity, pass the tasks to Executor tool. 
+- Use the transfer_to_planner tool for multi-step queries and queries requiring complex planning.
+- Use the tools provided to achieve the goal.
 - Reflect on results after each step, and re-plan if necessary. 
 - Track useful URLs or citations mentioned by tools. 
 - Finish with a concise response that includes a summary paragraph, a few bullet highlights, and a short citations section.
+
+Parallel tool calls:
+- Analyse the plan to determine if steps can be executed concurrently
+- Call tools in parallel where possible to speed up completion
 """.strip()
 
 manager = Agent(
     name="Manager",
-    instructions=manager_prompt,
-    model="gpt-4.1-mini",
+    instructions=prompt_with_handoff_instructions(manager_prompt),
+    model=default_model,
+    model_settings=default_model_settings,
     handoffs=[planner],
     tools=[*_base_tools, executor_tool],
-    model_settings=ModelSettings(tool_choice="auto", parallel_tool_calls=True),
 )
+
+# Ensure the Planner can hand control back to the Manager after drafting a plan.
+planner.handoffs = [manager]
 
 
 # ---------------------------
@@ -131,8 +139,15 @@ def _stream_agent_output(agent: Agent, prompt: str) -> AsyncIterator[str]:
 
     async def _generator() -> AsyncIterator[str]:
         yielded = False
+        active_agent_name = agent.name
         async for event in result.stream_events():
+            if isinstance(event, AgentUpdatedStreamEvent):
+                active_agent_name = event.new_agent.name
+                continue
+
             if isinstance(event, RawResponsesStreamEvent):
+                if active_agent_name != agent.name:
+                    continue
                 data = event.data
                 if isinstance(data, ResponseTextDeltaEvent):
                     chunk = data.delta or ""
@@ -147,11 +162,6 @@ def _stream_agent_output(agent: Agent, prompt: str) -> AsyncIterator[str]:
 
     return _generator()
 
-
-async def run_prompt(prompt: str) -> AsyncIterator[str]:
-    """Stream deltas from the Assistant agent."""
-    async for chunk in _stream_agent_output(assistant, prompt):
-        yield chunk
 
 async def run_plan_execute(prompt: str) -> AsyncIterator[str]:
     """Stream deltas from the Manager (planner/executor) pipeline."""
