@@ -16,7 +16,7 @@ with ui.column().classes(
     with ui.card().tight().classes('w-full max-w-xl'):
         with ui.card_section().classes('w-full'):
             with ui.column().classes('gap-4'):
-                ui.label("Ask the GPT-5 mini agent").classes('font-medium')
+                ui.label("GPT-5 mini agent").classes('font-medium')
 
                 prompt_input = ui.textarea(
                     placeholder="Ask me anything"

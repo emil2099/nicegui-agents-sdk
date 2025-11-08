@@ -10,9 +10,6 @@ from openai.types.responses.response_text_delta_event import ResponseTextDeltaEv
 # NOTE: adjust imports below if your SDK package path differs
 from agents import Agent, Runner, ModelSettings, WebSearchTool, CodeInterpreterTool
 from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent
-from agents.extensions.handoff_prompt import prompt_with_handoff_instructions
-from agents.extensions import handoff_filters
-from agents import handoff
 
 from openai.types.shared import Reasoning
 
@@ -45,17 +42,17 @@ class TaskPlan(BaseModel):
 
 planner_prompt = """
 Break the user's objective into concrete steps. 
-Prefer web_search for facts and code for calculations or data analysis. 
 Keep each step crisp, focused on a deliverable. Make the smallest number of steps possible (maximum 5). 
 
-**IMPORTANT:** Once the plan is produced, always call transfer_to_manager() tool."
+Return plan as numbered list of actions containing the following fields:
+Goal: str
+Deliverable: str
 """.strip()
 
 planner = Agent(
     name="Planner",
     instructions=planner_prompt,
-    model=default_model,
-    model_settings=ModelSettings(reasoning=Reasoning(effort="medium")),
+    model='gpt-4.1',
     output_type=TaskPlan,
 )
 
@@ -100,11 +97,19 @@ executor_tool = executor.as_tool(
     ),
 )
 
+planner_tool = planner.as_tool(
+    tool_name="draft_plan",
+    tool_description=(
+        "Break the user's request into a short numbered plan (max 5 steps). "
+        "Use for multi-step or ambiguous objectives before executing."
+    ),
+)
+
 manager_prompt = """
 You are a helpful assistant, who is responsible for helping the user in the most efficient way without being annoying.
 
 Approach:
-- Use the transfer_to_planner tool for multi-step queries and queries requiring complex planning.
+- Call the draft_plan tool for multi-step queries or when clarification is needed before execution.
 - Use the tools provided to achieve the goal.
 - Reflect on results after each step, and re-plan if necessary. 
 - Track useful URLs or citations mentioned by tools. 
@@ -117,15 +122,11 @@ Parallel tool calls:
 
 manager = Agent(
     name="Manager",
-    instructions=prompt_with_handoff_instructions(manager_prompt),
+    instructions=manager_prompt,
     model=default_model,
     model_settings=default_model_settings,
-    handoffs=[planner],
-    tools=[*_base_tools, executor_tool],
+    tools=[*_base_tools, planner_tool, executor_tool],
 )
-
-# Ensure the Planner can hand control back to the Manager after drafting a plan.
-planner.handoffs = [manager]
 
 
 # ---------------------------
