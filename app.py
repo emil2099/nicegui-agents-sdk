@@ -1,54 +1,57 @@
 """Barebones NiceGUI page that triggers an OpenAI Agent run."""
 
 from __future__ import annotations
-
-import os
-
-from dotenv import load_dotenv
 from nicegui import ui
 
-from agents import Agent, Runner
+# ⬇️ Keep existing simple path; add run_plan_execute for the multi-agent flow
+from agent_service import run_prompt, run_plan_execute
 
-# Load environment variables (expects OPENAI_API_KEY inside .env)
-load_dotenv()
+ui.colors(primary="#000000")
+ui.button.default_props('unelevated')
+ui.card.default_props('flat bordered')
+ui.toggle.default_props('unelevated')
 
-if not os.getenv("OPENAI_API_KEY"):
-    raise RuntimeError(
-        "OPENAI_API_KEY is not set. Create it in your .env or export it before running the app."
-    )
+with ui.column().classes(
+    'min-h-screen w-full items-center justify-center px-4 py-16 box-border'
+):
+    with ui.card().tight().classes('w-full max-w-xl'):
+        with ui.card_section().classes('w-full'):
+            with ui.column().classes('gap-4'):
+                ui.label("Ask the GPT-5 mini agent").classes('font-medium')
+            
+                prompt_input = ui.textarea(
+                    placeholder="Ask me anything"
+                ).props("autogrow outlined dense").classes('w-full ')
+                output_area = ui.markdown("Waiting for a question…")
 
-# Define a minimal single-agent workflow that uses GPT-5 mini.
-assistant = Agent(
-    name="NiceGUI helper",
-    instructions="Answer succinctly and mention one follow-up idea when helpful.",
-    model_config={"model": "gpt-5-mini"},
-)
+                async def on_submit() -> None:
+                    output_area.set_content("Thinking…")
+                    text = prompt_input.value.strip()
+                    if not text:
+                        output_area.set_content("Please enter a prompt.")
+                        return
 
+                    if mode.value == 'plan':
+                        # multi-agent brief with citations (markdown)
+                        response_md = await run_plan_execute(text)
+                        output_area.set_content(response_md)
+                    else:
+                        # original single-agent path
+                        response = await run_prompt(text)
+                        output_area.set_content(response)
+                
+        ui.separator()
+        with ui.card_actions().classes('w-full items-center justify-between gap-4 px-4'):
 
-async def ask_agent(prompt: str) -> str:
-    """Run the agent and return its final output, or a fallback message."""
-    if not prompt.strip():
-        return "Please enter a question first."
+            # ⬇️ Tiny mode switch; default is your current behaviour
+            mode = ui.toggle(
+                options={
+                    'simple': 'Simple',
+                    'plan': 'Complex',
+                },
+                value='plan',
+            ).props('padding="xs sm"').classes('border')
 
-    result = await Runner.run(assistant, prompt)
-    return result.final_output or "The agent finished without returning text."
-
-
-with ui.card():
-    ui.label("Ask the GPT-5 mini agent")
-    prompt_input = ui.textarea(
-        label="Prompt",
-        placeholder="e.g. Summarize the first three laws of motion.",
-        value="",
-    ).props("autogrow")
-    output_area = ui.markdown("Waiting for a question…")
-
-    async def on_submit() -> None:
-        output_area.set_text("Thinking…")
-        response = await ask_agent(prompt_input.value)
-        output_area.set_text(response)
-
-    ui.button("Ask", on_click=on_submit).props("color=primary")
-
+            ui.button("Ask", on_click=on_submit).props('padding="xs md"').classes('ml-auto')
 
 ui.run(title="NiceGUI + OpenAI Agents Demo")
