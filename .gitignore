@@ -1,0 +1,10 @@
+.venv/
+.env
+.vscode/*
+!.vscode/settings.json
+
+.DS_Store
+Thumbs.db
+__pycache__/
+*.db
+other.md
