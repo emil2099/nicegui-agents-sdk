@@ -41,7 +41,7 @@ with ui.column().classes(
                         output_area.set_content(response)
                 
         ui.separator()
-        with ui.card_actions().classes('w-full items-center justify-between gap-4 px-4'):
+        with ui.card_actions().classes('w-full items-center justify-between gap-4 p-4'):
 
             # ⬇️ Tiny mode switch; default is your current behaviour
             mode = ui.toggle(
