@@ -9,9 +9,11 @@ from pydantic import BaseModel, Field
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
 # NOTE: adjust imports below if your SDK package path differs
 from agents import Agent, Runner, ModelSettings, WebSearchTool, CodeInterpreterTool
-from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent
+from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent, RunItemStreamEvent
 
 from openai.types.shared import Reasoning
+
+from events import EventPublisher
 
 load_dotenv()
 
@@ -77,7 +79,7 @@ executor = Agent(
         "For web results, include reputable sources with titles and URLs. "
         "For code, print concise, human-readable outputs."
     ),
-    model=default_model,
+    model='gpt-5-mini',
     model_settings=ModelSettings(reasoning=Reasoning(effort="low"), verbosity="low"),
     tools=_base_tools,
 )
@@ -136,38 +138,46 @@ manager = Agent(
 # UI-friendly wrappers
 # ---------------------------
 
-def _stream_agent_output(agent: Agent, prompt: str) -> AsyncIterator[str]:
+async def _stream_agent_output(
+    agent: Agent, 
+    prompt: str, 
+    event_publisher: EventPublisher | None = None
+) -> AsyncIterator[str]:
     """Return an async iterator that yields text deltas for the given agent."""
 
     result = Runner.run_streamed(agent, prompt)
 
-    async def _generator() -> AsyncIterator[str]:
-        yielded = False
-        active_agent_name = agent.name
-        async for event in result.stream_events():
-            if isinstance(event, AgentUpdatedStreamEvent):
-                active_agent_name = event.new_agent.name
+    yielded = False
+    active_agent_name = agent.name
+    async for event in result.stream_events():
+        
+        if event_publisher:
+            try:
+                event_publisher.publish_openai_agents_event(event)
+            except Exception as e:
+                print(f"[AgentService Error] Failed to publish event: {e}")
+
+        if isinstance(event, AgentUpdatedStreamEvent):
+            active_agent_name = event.new_agent.name
+            continue
+
+        if isinstance(event, RawResponsesStreamEvent):
+            # Only output text from top-level agent, not sub-agents
+            if active_agent_name != agent.name:
                 continue
+            data = event.data
+            if isinstance(data, ResponseTextDeltaEvent):
+                chunk = data.delta or ""
+                if chunk:
+                    yielded = True
+                    yield chunk
 
-            if isinstance(event, RawResponsesStreamEvent):
-                if active_agent_name != agent.name:
-                    continue
-                data = event.data
-                if isinstance(data, ResponseTextDeltaEvent):
-                    chunk = data.delta or ""
-                    if chunk:
-                        yielded = True
-                        yield chunk
+    if not yielded:
+        final_output = result.final_output
+        if isinstance(final_output, str) and final_output:
+            yield final_output
 
-        if not yielded:
-            final_output = result.final_output
-            if isinstance(final_output, str) and final_output:
-                yield final_output
-
-    return _generator()
-
-
-async def run_plan_execute(prompt: str) -> AsyncIterator[str]:
+async def run_plan_execute(prompt: str, event_publisher: EventPublisher | None = None) -> AsyncIterator[str]:
     """Stream deltas from the Manager (planner/executor) pipeline."""
-    async for chunk in _stream_agent_output(manager, prompt):
+    async for chunk in _stream_agent_output(manager, prompt, event_publisher=event_publisher):
         yield chunk

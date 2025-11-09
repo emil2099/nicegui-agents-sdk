@@ -5,6 +5,17 @@ from __future__ import annotations
 from nicegui import ui
 
 from agent_service import run_plan_execute
+from events import AgentEvent, EventPublisher
+
+
+# 2. Define our "dummy subscriber" (as you suggested)
+def terminal_event_logger(event: AgentEvent):
+    """
+    This is our "subscriber" function. It just prints the event
+    as a JSON string to the terminal.
+    """
+    print(f"[EVENT LOG] {event.model_dump_json(indent=2)}")
+
 
 ui.colors(primary="#000000")
 ui.button.default_props('unelevated')
@@ -31,7 +42,9 @@ with ui.column().classes(
                         ask_button.enable()
                         return
 
-                    stream = run_plan_execute(text)
+                    event_publisher = EventPublisher(subscribers=[terminal_event_logger])
+
+                    stream = run_plan_execute(text, event_publisher=event_publisher)
 
                     chunks: list[str] = []
                     try:
