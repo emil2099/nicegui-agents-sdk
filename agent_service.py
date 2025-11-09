@@ -3,7 +3,8 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from agents import (
-    Agent, Runner, ModelSettings, WebSearchTool, CodeInterpreterTool, function_tool
+    Agent, Runner, ModelSettings, WebSearchTool, CodeInterpreterTool, function_tool,
+    RunContextWrapper
 )
 
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
@@ -11,7 +12,7 @@ from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEven
 from openai.types.responses.web_search_tool_param import UserLocation
 
 from events import EventPublisher
-from agent_event_hooks import EventPublishingHook
+from agent_event_hooks import EventPublishingHook, emit_agent_event
 
 load_dotenv()
 
@@ -87,10 +88,19 @@ planner_tool = planner.as_tool(
 )
 
 @function_tool
-def random_number(max: int) -> int:
+async def random_number(ctx: RunContextWrapper[Any], max: int) -> int:
     import random
     """Generate a random number from 0 to max (inclusive)."""
-    return random.randint(0, max)
+    value = random.randint(0, max)
+    await emit_agent_event(
+        ctx,
+        source="random_number_tool",
+        event_type="tool_random_number_event",
+        tool_name="random_number",
+        max=max,
+        result=value,
+    )
+    return value
 
 manager_prompt = """
 You are a helpful assistant, who is responsible for helping the user in the most efficient way without being annoying.
@@ -117,7 +127,7 @@ manager = Agent(
     model=default_model,
     model_settings=default_model_settings,
     hooks=EventPublishingHook(),
-    tools=[*_base_tools, planner_tool, executor_tool],
+    tools=[*_base_tools, planner_tool, executor_tool, random_number],
 )
 
 async def _stream_agent_output(

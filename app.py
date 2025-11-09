@@ -8,9 +8,11 @@ from nicegui import ui
 
 from agent_service import run_plan_execute
 from events import AgentEvent, EventPublisher
+from ui_components.step_tracker import StepTracker
 
 
 event_log = None
+step_tracker: StepTracker | None = None
 
 
 def _stringify(value: Any) -> str:
@@ -66,7 +68,14 @@ with ui.column().classes(
                         event_log.clear()
                         event_log.push("listening for events…")
 
-                    event_publisher = EventPublisher(subscribers=[ui_event_logger])
+                    if step_tracker is not None:
+                        step_tracker.reset()
+
+                    subscribers = [ui_event_logger]
+                    if step_tracker is not None:
+                        subscribers.append(step_tracker.handle_event)
+
+                    event_publisher = EventPublisher(subscribers=subscribers)
 
                     stream = run_plan_execute(text, event_publisher=event_publisher)
 
@@ -95,6 +104,8 @@ with ui.column().classes(
         with ui.card_actions().classes('w-full items-center justify-between gap-4 p-4'):
 
             ask_button = ui.button("Ask", on_click=on_submit).props('padding="xs md"').classes('ml-auto')
+
+    step_tracker = StepTracker()
 
     with ui.card().tight().classes('w-full max-w-xl mt-6'):
         with ui.card_section().classes('w-full'):

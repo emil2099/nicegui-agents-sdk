@@ -9,16 +9,29 @@ from agents import Agent, AgentHooks, ModelResponse, RunContextWrapper, Tool, TR
 from events import AgentEvent, EventPublisher
 
 
+def get_event_publisher(context_wrapper: RunContextWrapper) -> Optional[EventPublisher]:
+    ctx = getattr(context_wrapper, "context", None)
+    if isinstance(ctx, dict):
+        pub = ctx.get("event_publisher")
+        return pub if isinstance(pub, EventPublisher) else None
+    return None
+
+
+async def emit_agent_event(
+    context_wrapper: RunContextWrapper,
+    source: str,
+    event_type: str,
+    **data: Any,
+) -> None:
+    publisher = get_event_publisher(context_wrapper)
+    if publisher:
+        await publisher.publish_event(
+            AgentEvent(event_type=event_type, source=source, data=data)
+        )
+
+
 class EventPublishingHook(AgentHooks):
     """Broadcasts every lifecycle callback to the shared EventPublisher."""
-
-    @staticmethod
-    def _get_publisher(context: RunContextWrapper) -> Optional[EventPublisher]:
-        ctx = getattr(context, "context", None)
-        if isinstance(ctx, dict):
-            pub = ctx.get("event_publisher")
-            return pub if isinstance(pub, EventPublisher) else None
-        return None
 
     async def _emit(
         self,
@@ -27,11 +40,7 @@ class EventPublishingHook(AgentHooks):
         event_type: str,
         **data: Any,
     ) -> None:
-        publisher = self._get_publisher(context_wrapper)
-        if publisher:
-            await publisher.publish_event(
-                AgentEvent(event_type=event_type, source=source, data=data)
-            )
+        await emit_agent_event(context_wrapper, source, event_type, **data)
 
     async def on_start(self, context: RunContextWrapper, agent: Agent) -> None:
         await self._emit(
