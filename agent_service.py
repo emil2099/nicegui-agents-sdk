@@ -1,29 +1,52 @@
-"""Agent service: Manager orchestrates Planner + Executor."""
-
-from __future__ import annotations
-
-from typing import AsyncIterator, List, Optional
-
+from typing import AsyncIterator, List, Optional, Dict, Any
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+
+from agents import (
+    Agent, Runner, ModelSettings, WebSearchTool, CodeInterpreterTool,
+    AgentHooks, RunContextWrapper, Tool
+)
+
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
-# NOTE: adjust imports below if your SDK package path differs
-from agents import Agent, Runner, ModelSettings, WebSearchTool, CodeInterpreterTool
-from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent, RunItemStreamEvent
-
-from openai.types.shared import Reasoning
-
-from events import EventPublisher
+from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent
+from events import EventPublisher, AgentEvent
 
 load_dotenv()
 
+class EventPublishingHook(AgentHooks):
+    def __init__(self) -> None:
+        pass
+
+    @staticmethod
+    def _get_publisher(context: RunContextWrapper) -> Optional[EventPublisher]:
+        ctx = getattr(context, "context", None)
+        if isinstance(ctx, dict):
+            pub = ctx.get("event_publisher")
+            return pub if isinstance(pub, EventPublisher) else None
+        return None
+
+    async def _emit(self, context: RunContextWrapper, source: str, event_type: str, **data: Any) -> None:
+        publisher = self._get_publisher(context)
+        if publisher:
+            await publisher.publish_event(AgentEvent(event_type=event_type, source=source, data=data))
+
+    async def on_start(self, context: RunContextWrapper, agent: Agent) -> None:
+        await self._emit(context, agent.name, "agent_started_stream_event", agent_name=agent.name)
+
+    async def on_end(self, context: RunContextWrapper, agent: Agent, output: Any) -> None:
+        await self._emit(context, agent.name, "agent_ended_stream_event", agent_name=agent.name)
+
+    async def on_handoff(self, context: RunContextWrapper, agent: Agent, source: Agent) -> None:
+        await self._emit(context, source.name, "agent_handoff_stream_event", from_agent=source.name, to_agent=agent.name)
+
+    async def on_tool_start(self, context: RunContextWrapper, agent: Agent, tool: Tool) -> None:
+        await self._emit(context, agent.name, "tool_started_stream_event", agent_name=agent.name, tool_name=tool.name)
+
+    async def on_tool_end(self, context: RunContextWrapper, agent: Agent, tool: Tool, result: str) -> None:
+        await self._emit(context, agent.name, "tool_ended_stream_event", agent_name=agent.name, tool_name=tool.name)
+
 default_model = 'gpt-4.1'
 default_model_settings = ModelSettings(tool_choice="auto")
-# default_model_settings = ModelSettings(reasoning=Reasoning(effort="medium"), tool_choice="auto", parallel_tool_calls=True)
-
-# ---------------------------
-# Structured output models
-# ---------------------------
 
 class PlanStep(BaseModel):
     id: int
@@ -36,10 +59,6 @@ class PlanStep(BaseModel):
 
 class TaskPlan(BaseModel):
     steps: List[PlanStep]
-
-# ---------------------------
-# Planner (outputs a typed plan)
-# ---------------------------
 
 planner_prompt = """
 Break the user's objective into concrete steps. 
@@ -55,19 +74,15 @@ planner = Agent(
     instructions=planner_prompt,
     model='gpt-4.1',
     output_type=TaskPlan,
+    hooks=EventPublishingHook(),
 )
 
-# ---------------------------
-# Executor (tool-enabled)
-# ---------------------------
-
-# WebSearchTool works as-is. CodeInterpreterTool requires tool_config in recent SDK versions.
 _base_tools = [
     WebSearchTool(),
     CodeInterpreterTool(
         tool_config={
             "type": "code_interpreter",
-            "container": {"type": "auto"},  # or {"type": "ref", "session_id": "..."}
+            "container": {"type": "auto"},
         }
     ),
 ]
@@ -79,23 +94,18 @@ executor = Agent(
         "For web results, include reputable sources with titles and URLs. "
         "For code, print concise, human-readable outputs."
     ),
-    model='gpt-5-mini',
-    model_settings=ModelSettings(reasoning=Reasoning(effort="low"), verbosity="low"),
+    model=default_model,
+    model_settings=default_model_settings,
     tools=_base_tools,
+    hooks=EventPublishingHook(),
 )
 
-
-# ---------------------------
-# Manager setup
-# ---------------------------
-
-# Allow the executor to be used as a callable tool by other agents (Manager).
 executor_tool = executor.as_tool(
     tool_name="execute_step",
     tool_description=(
         "Use this to run a single research or analysis step. "
         "Pass the specific instructions and any context gathered so far."
-    ),
+    )
 )
 
 planner_tool = planner.as_tool(
@@ -103,7 +113,7 @@ planner_tool = planner.as_tool(
     tool_description=(
         "Break the user's request into a short numbered plan (max 5 steps). "
         "Use for multi-step or ambiguous objectives before executing."
-    ),
+    )
 )
 
 manager_prompt = """
@@ -130,39 +140,38 @@ manager = Agent(
     instructions=manager_prompt,
     model=default_model,
     model_settings=default_model_settings,
+    hooks=EventPublishingHook(),
     tools=[*_base_tools, planner_tool, executor_tool],
 )
-
-
-# ---------------------------
-# UI-friendly wrappers
-# ---------------------------
 
 async def _stream_agent_output(
     agent: Agent, 
     prompt: str, 
-    event_publisher: EventPublisher | None = None
+    event_publisher: Optional[EventPublisher] = None
 ) -> AsyncIterator[str]:
-    """Return an async iterator that yields text deltas for the given agent."""
-
-    result = Runner.run_streamed(agent, prompt)
+    
+    context: Optional[Dict[str, Any]] = None
+    hooks: Optional[EventPublishingHook] = None
+    
+    if event_publisher:
+        context = {"event_publisher": event_publisher}
+    
+    result = Runner.run_streamed(
+        agent, 
+        prompt,
+        context=context
+    )
 
     yielded = False
     active_agent_name = agent.name
+    
     async for event in result.stream_events():
         
-        if event_publisher:
-            try:
-                event_publisher.publish_openai_agents_event(event)
-            except Exception as e:
-                print(f"[AgentService Error] Failed to publish event: {e}")
-
         if isinstance(event, AgentUpdatedStreamEvent):
             active_agent_name = event.new_agent.name
             continue
 
         if isinstance(event, RawResponsesStreamEvent):
-            # Only output text from top-level agent, not sub-agents
             if active_agent_name != agent.name:
                 continue
             data = event.data
@@ -177,7 +186,14 @@ async def _stream_agent_output(
         if isinstance(final_output, str) and final_output:
             yield final_output
 
-async def run_plan_execute(prompt: str, event_publisher: EventPublisher | None = None) -> AsyncIterator[str]:
-    """Stream deltas from the Manager (planner/executor) pipeline."""
-    async for chunk in _stream_agent_output(manager, prompt, event_publisher=event_publisher):
+async def run_plan_execute(
+    prompt: str, 
+    event_publisher: Optional[EventPublisher] = None
+) -> AsyncIterator[str]:
+    
+    async for chunk in _stream_agent_output(
+        manager, 
+        prompt, 
+        event_publisher=event_publisher
+    ):
         yield chunk

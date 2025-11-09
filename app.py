@@ -9,7 +9,7 @@ from events import AgentEvent, EventPublisher
 
 
 # 2. Define our "dummy subscriber" (as you suggested)
-def terminal_event_logger(event: AgentEvent):
+async def terminal_event_logger(event: AgentEvent):
     """
     This is our "subscriber" function. It just prints the event
     as a JSON string to the terminal.
