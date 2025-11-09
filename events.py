@@ -3,9 +3,11 @@
 from __future__ import annotations
 from typing import Any, Callable, List, Optional, Dict, Awaitable
 from pydantic import BaseModel, Field
+from datetime import datetime, timezone
 import asyncio, inspect
 
 class AgentEvent(BaseModel):
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     event_type: str
     event_name: Optional[str] = None
     source: str
@@ -21,7 +23,6 @@ class EventPublisher:
     # Make this method async
     async def publish_event(self, event: AgentEvent):
         tasks = []
-        print(event)
         for subscriber in self._subscribers:
             try:
                 if inspect.iscoroutinefunction(subscriber):

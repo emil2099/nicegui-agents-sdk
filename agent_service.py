@@ -9,6 +9,7 @@ from agents import (
 
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
 from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent
+from openai.types.responses.web_search_tool_param import UserLocation
 from events import EventPublisher, AgentEvent
 
 load_dotenv()
@@ -78,7 +79,7 @@ planner = Agent(
 )
 
 _base_tools = [
-    WebSearchTool(),
+    WebSearchTool(user_location=UserLocation(country='GB', type='approximate')),
     CodeInterpreterTool(
         tool_config={
             "type": "code_interpreter",

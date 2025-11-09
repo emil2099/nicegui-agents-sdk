@@ -8,13 +8,20 @@ from agent_service import run_plan_execute
 from events import AgentEvent, EventPublisher
 
 
-# 2. Define our "dummy subscriber" (as you suggested)
-async def terminal_event_logger(event: AgentEvent):
-    """
-    This is our "subscriber" function. It just prints the event
-    as a JSON string to the terminal.
-    """
-    print(f"[EVENT LOG] {event.model_dump_json(indent=2)}")
+event_log = None
+
+
+def _format_event_line(event: AgentEvent) -> str:
+    details = ", ".join(f"{key}={value}" for key, value in event.data.items()) or "no payload"
+    timestamp = event.timestamp.astimezone().strftime("%H:%M:%S")
+    rest = f"{event.event_type} | {details}"
+    return f"{timestamp} [{event.source}] {rest}"
+
+
+async def ui_event_logger(event: AgentEvent) -> None:
+    if event_log is None:
+        return
+    event_log.push(_format_event_line(event))
 
 
 ui.colors(primary="#000000")
@@ -42,7 +49,11 @@ with ui.column().classes(
                         ask_button.enable()
                         return
 
-                    event_publisher = EventPublisher(subscribers=[terminal_event_logger])
+                    if event_log is not None:
+                        event_log.clear()
+                        event_log.push("listening for events…")
+
+                    event_publisher = EventPublisher(subscribers=[ui_event_logger])
 
                     stream = run_plan_execute(text, event_publisher=event_publisher)
 
@@ -69,5 +80,11 @@ with ui.column().classes(
         with ui.card_section().classes('w-full'):
             ui.label("Response").classes('font-medium')
             output_area = ui.markdown("Waiting for a question…").classes('w-full min-h-[10rem]')
+
+    with ui.card().tight().classes('w-full max-w-xl mt-6'):
+        with ui.card_section().classes('w-full'):
+            ui.label("Event Log").classes('font-medium')
+            event_log = ui.log(max_lines=200).classes('w-full min-h-[12rem] text-xs')
+            event_log.push("No events yet. Submit a prompt to see activity.")
 
 ui.run(title="NiceGUI + OpenAI Agents Demo")
