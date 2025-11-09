@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from agents import (
-    Agent, Runner, ModelSettings, WebSearchTool, CodeInterpreterTool
+    Agent, Runner, ModelSettings, WebSearchTool, CodeInterpreterTool, function_tool
 )
 
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
@@ -85,6 +85,12 @@ planner_tool = planner.as_tool(
         "Use for multi-step or ambiguous objectives before executing."
     )
 )
+
+@function_tool
+def random_number(max: int) -> int:
+    import random
+    """Generate a random number from 0 to max (inclusive)."""
+    return random.randint(0, max)
 
 manager_prompt = """
 You are a helpful assistant, who is responsible for helping the user in the most efficient way without being annoying.

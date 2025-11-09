@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from agents import Agent, AgentHooks, ModelResponse, RunContextWrapper, Tool
+from agents import Agent, AgentHooks, ModelResponse, RunContextWrapper, Tool, TResponseInputItem
 
 from events import AgentEvent, EventPublisher
 
@@ -90,4 +90,20 @@ class EventPublishingHook(AgentHooks):
             "llm_ended_stream_event",
             agent=agent,
             response=response,
+        )
+
+    async def on_llm_start(
+        self,
+        context: RunContextWrapper,
+        agent: Agent,
+        system_prompt: Optional[str],
+        input_items: list[TResponseInputItem],
+    ) -> None:
+        await self._emit(
+            context,
+            agent.name,
+            "llm_started_stream_event",
+            agent=agent,
+            system_prompt=system_prompt,
+            input_items=input_items,
         )
