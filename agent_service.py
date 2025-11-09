@@ -3,48 +3,17 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from agents import (
-    Agent, Runner, ModelSettings, WebSearchTool, CodeInterpreterTool,
-    AgentHooks, RunContextWrapper, Tool
+    Agent, Runner, ModelSettings, WebSearchTool, CodeInterpreterTool
 )
 
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
 from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent
 from openai.types.responses.web_search_tool_param import UserLocation
-from events import EventPublisher, AgentEvent
+
+from events import EventPublisher
+from agent_event_hooks import EventPublishingHook
 
 load_dotenv()
-
-class EventPublishingHook(AgentHooks):
-    def __init__(self) -> None:
-        pass
-
-    @staticmethod
-    def _get_publisher(context: RunContextWrapper) -> Optional[EventPublisher]:
-        ctx = getattr(context, "context", None)
-        if isinstance(ctx, dict):
-            pub = ctx.get("event_publisher")
-            return pub if isinstance(pub, EventPublisher) else None
-        return None
-
-    async def _emit(self, context: RunContextWrapper, source: str, event_type: str, **data: Any) -> None:
-        publisher = self._get_publisher(context)
-        if publisher:
-            await publisher.publish_event(AgentEvent(event_type=event_type, source=source, data=data))
-
-    async def on_start(self, context: RunContextWrapper, agent: Agent) -> None:
-        await self._emit(context, agent.name, "agent_started_stream_event", agent_name=agent.name)
-
-    async def on_end(self, context: RunContextWrapper, agent: Agent, output: Any) -> None:
-        await self._emit(context, agent.name, "agent_ended_stream_event", agent_name=agent.name)
-
-    async def on_handoff(self, context: RunContextWrapper, agent: Agent, source: Agent) -> None:
-        await self._emit(context, source.name, "agent_handoff_stream_event", from_agent=source.name, to_agent=agent.name)
-
-    async def on_tool_start(self, context: RunContextWrapper, agent: Agent, tool: Tool) -> None:
-        await self._emit(context, agent.name, "tool_started_stream_event", agent_name=agent.name, tool_name=tool.name)
-
-    async def on_tool_end(self, context: RunContextWrapper, agent: Agent, tool: Tool, result: str) -> None:
-        await self._emit(context, agent.name, "tool_ended_stream_event", agent_name=agent.name, tool_name=tool.name)
 
 default_model = 'gpt-4.1'
 default_model_settings = ModelSettings(tool_choice="auto")
@@ -152,7 +121,6 @@ async def _stream_agent_output(
 ) -> AsyncIterator[str]:
     
     context: Optional[Dict[str, Any]] = None
-    hooks: Optional[EventPublishingHook] = None
     
     if event_publisher:
         context = {"event_publisher": event_publisher}

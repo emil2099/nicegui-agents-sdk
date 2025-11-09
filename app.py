@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from nicegui import ui
 
 from agent_service import run_plan_execute
@@ -11,8 +13,19 @@ from events import AgentEvent, EventPublisher
 event_log = None
 
 
+def _stringify(value: Any) -> str:
+    if hasattr(value, "name"):
+        return f"{value.__class__.__name__}(name={getattr(value, 'name', 'unknown')})"
+    if hasattr(value, "model_dump_json"):
+        return value.model_dump_json()
+    return repr(value)
+
+
 def _format_event_line(event: AgentEvent) -> str:
-    details = ", ".join(f"{key}={value}" for key, value in event.data.items()) or "no payload"
+    if event.data:
+        details = ", ".join(f"{key}={_stringify(value)}" for key, value in event.data.items())
+    else:
+        details = "no payload"
     timestamp = event.timestamp.astimezone().strftime("%H:%M:%S")
     rest = f"{event.event_type} | {details}"
     return f"{timestamp} [{event.source}] {rest}"
@@ -29,7 +42,7 @@ ui.button.default_props('unelevated')
 ui.card.default_props('flat bordered')
 
 with ui.column().classes(
-    'min-h-screen w-full items-center justify-center px-4 py-16 box-border'
+    'w-full items-center justify-center px-4 pt-16 box-border'
 ):
     with ui.card().tight().classes('w-full max-w-xl'):
         with ui.card_section().classes('w-full'):
@@ -58,15 +71,22 @@ with ui.column().classes(
                     stream = run_plan_execute(text, event_publisher=event_publisher)
 
                     chunks: list[str] = []
+                    captured_error: Exception | None = None
                     try:
                         async for chunk in stream:
                             if chunk:
                                 chunks.append(chunk)
                                 output_area.set_content("".join(chunks))
                     except Exception as e:
+                        captured_error = e
                         output_area.set_content(f"Error: {e}")
+                        if event_log is not None:
+                            event_log.push(f"error: {e}")
                     finally:
                         ask_button.enable()
+
+                    if captured_error is not None:
+                        raise captured_error
 
                     if not chunks:
                         output_area.set_content("(no response)")
@@ -81,10 +101,11 @@ with ui.column().classes(
             ui.label("Response").classes('font-medium')
             output_area = ui.markdown("Waiting for a question…").classes('w-full min-h-[10rem]')
 
-    with ui.card().tight().classes('w-full max-w-xl mt-6'):
+with ui.element().classes('w-full px-4 pb-16 box-border'):
+    with ui.card().tight().classes('w-full'):
         with ui.card_section().classes('w-full'):
             ui.label("Event Log").classes('font-medium')
             event_log = ui.log(max_lines=200).classes('w-full min-h-[12rem] text-xs')
             event_log.push("No events yet. Submit a prompt to see activity.")
 
-ui.run(title="NiceGUI + OpenAI Agents Demo")
+ui.run(title="Mini agent demo")
