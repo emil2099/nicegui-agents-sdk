@@ -12,11 +12,13 @@ class StepTracker(ui.list):
 
     def __init__(self) -> None:
         super().__init__()
-        self.classes('w-full max-w-xl mt-4 rounded-borders').props('bordered dense')
+        self.classes('w-full max-w-xl rounded-borders').props('bordered dense')
 
         with self:
-            self._expansion = ui.expansion(text="Agent steps", icon="o_task", value=False).props('dense').classes('w-full')
+            self._expansion = ui.expansion(text="Agent ready to go", icon="o_task", value=False).props('dense').classes('w-full')
+            
             with self._expansion:
+                ui.query('.nicegui-expansion .q-expansion-item__content').style('padding:0',replace='gap:0')
                 self._event_list = ui.list().props('dense').classes('w-full text-sm')
 
         self._base_label = "Agent steps"
@@ -31,10 +33,7 @@ class StepTracker(ui.list):
 
     def _append_item(self, summary: str) -> None:
         with self._event_list:
-            item = ui.item().props('clickable').classes('text-left break-words w-full')
-            with item:
-                ui.item_label(summary)
-
+            item = ui.item(text=summary).props('clickable').classes('break-words w-full')
     @staticmethod
     def _summarize_event(event: AgentEvent) -> str:
         source = event.source

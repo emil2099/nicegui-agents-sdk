@@ -44,7 +44,7 @@ ui.button.default_props('unelevated')
 ui.card.default_props('flat bordered')
 
 with ui.column().classes(
-    'w-full items-center justify-center px-4 pt-16 box-border'
+    'w-full items-center justify-center px-4 pt-16 box-border gap-4'
 ):
     with ui.card().tight().classes('w-full max-w-xl'):
         with ui.card_section().classes('w-full'):
@@ -107,7 +107,7 @@ with ui.column().classes(
 
     step_tracker = StepTracker()
 
-    with ui.card().tight().classes('w-full max-w-xl mt-6'):
+    with ui.card().tight().classes('w-full max-w-xl'):
         with ui.card_section().classes('w-full'):
             ui.label("Response").classes('font-medium')
             output_area = ui.markdown("Waiting for a question…").classes('w-full min-h-[10rem]')
