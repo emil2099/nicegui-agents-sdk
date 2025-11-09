@@ -15,9 +15,9 @@ from openai.types.shared import Reasoning
 
 load_dotenv()
 
-default_model = 'gpt-5-mini'
-# default_model_settings = ModelSettings(reasoning=Reasoning(effort="minimal"), verbosity="low")
-default_model_settings = ModelSettings(reasoning=Reasoning(effort="medium"), tool_choice="auto", parallel_tool_calls=True)
+default_model = 'gpt-4.1'
+default_model_settings = ModelSettings(tool_choice="auto")
+# default_model_settings = ModelSettings(reasoning=Reasoning(effort="medium"), tool_choice="auto", parallel_tool_calls=True)
 
 # ---------------------------
 # Structured output models
@@ -33,7 +33,6 @@ class PlanStep(BaseModel):
     )
 
 class TaskPlan(BaseModel):
-    topic: str
     steps: List[PlanStep]
 
 # ---------------------------
@@ -118,6 +117,10 @@ Approach:
 Parallel tool calls:
 - Analyse the plan to determine if steps can be executed concurrently
 - Call tools in parallel where possible to speed up completion
+- Use executor or concurrent tool calls to work out the answer
+
+Outputs:
+- Provide a natural response to the initial user query, do not mention the process or planning steps you took to get there.
 """.strip()
 
 manager = Agent(
