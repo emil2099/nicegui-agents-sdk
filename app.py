@@ -117,19 +117,22 @@ with ui.column().classes(
 
     class ProgressItem(ui.item):
         """Timeline-style list item: dot + vertical line + free-form content."""
-        def __init__(self):
+        def __init__(self, *, final: bool = False):
             super().__init__()
             with self:
                 with ui.row().classes('w-full items-start no-wrap gap-2 overflow-clip mb-2'):
-                    # LEFT RAIL
-                    with ui.column().classes('w-4 shrink-0 items-center self-stretch gap-0'):
-                        with ui.row().classes('h-5 items-center justify-center'):
-                            ui.element('div').classes('h-[6px] w-[6px] rounded-full bg-gray-400')
-                        # vertical line
-                        ui.element('div').classes('w-[1px] rounded-full grow bg-gray-300')
+                    # LEFT RAIL / ICON COLUMN
+                    with ui.column().classes('w-6 shrink-0 items-center self-stretch gap-0'):
+                        if final:
+                            # Replace dot + line with icon for final item
+                            ui.icon('sym_o_checklist_rtl').classes('text-xl text-gray-500 mt-[2px]')
+                        else:
+                            with ui.row().classes('h-5 items-center justify-center'):
+                                ui.element('div').classes('h-[6px] w-[6px] rounded-full bg-gray-400')
+                            ui.element('div').classes('w-[1px] rounded-full grow bg-gray-300')
 
-                    # RIGHT CONTENT (you can fill this freely)
-                    self.container = ui.column().classes('grow min-w-0')
+                    # RIGHT CONTENT (free-form)
+                    self.container = ui.column().classes('grow min-w-0 gap-2')
 
     with ui.list().props('dense').classes('w-full max-w-xl'):
         dummy_tracker = ui.expansion(text='Hello').props('dense').classes('w-full')
@@ -137,7 +140,8 @@ with ui.column().classes(
         with dummy_tracker.add_slot('header'):
             with ui.item_section().classes('w-full'):
                 with ui.row().classes('items-center gap-2'):
-                    ui.icon('sym_o_token').classes('text-xl')
+                    with ui.column().classes('w-6 shrink-0 items-center justify-center'):
+                        ui.icon('sym_o_token').classes('text-xl')
                     ui.label('Hello! I am thinking!').classes('shimmer')
 
         with dummy_tracker:
@@ -157,6 +161,40 @@ with ui.column().classes(
                             'Confirmed the base background layer prevents the text from vanishing '
                             'across themes and backgrounds.'
                         )
+
+                with ProgressItem() as item:
+                    with item.container:
+                        # Header row: icon + title
+                        with ui.row().classes('items-center gap-2'):
+                            ui.icon('sym_o_search').classes('text-lg text-gray-600')
+                            ui.label('Searching the web').classes('font-medium')
+
+                        # Card: full width, light background, bordered
+                        with ui.card().props('flat bordered').classes('w-full bg-gray-50'):
+                            with ui.column().classes('w-full gap-2'):
+                                ui.label(
+                                    'Collected the latest reports on funding trends and competitor launches.'
+                                ).classes('text-sm text-gray-600')
+
+                                # Faux search query pill
+                                with ui.row().classes(
+                                    'w-full items-center no-wrap gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2'
+                                ):
+                                    ui.icon('sym_o_search')
+                                    ui.label(
+                                        'Latest startup funding trends 2025 fintech SaaS competitor analysis site'
+                                    ).classes('text-sm text-gray-700 grow min-w-0 truncate')
+                with ProgressItem() as item:
+                    with item.container:
+                        ui.label('Simple step')
+                
+                with ProgressItem() as item:
+                    with item.container:
+                        ui.label('Simple step 2')
+                    
+                with ProgressItem(final=True) as item:
+                    with item.container:
+                        ui.label('Finished processing').classes('text-bold')
 
     with ui.card().tight().classes('w-full max-w-xl'):
         with ui.card_section().classes('w-full'):
