@@ -115,13 +115,48 @@ with ui.column().classes(
 
     step_tracker = StepTracker()
 
+    class ProgressItem(ui.item):
+        """Timeline-style list item: dot + vertical line + free-form content."""
+        def __init__(self):
+            super().__init__()
+            with self:
+                with ui.row().classes('w-full items-start no-wrap gap-2 overflow-clip mb-2'):
+                    # LEFT RAIL
+                    with ui.column().classes('w-4 shrink-0 items-center self-stretch gap-0'):
+                        with ui.row().classes('h-5 items-center justify-center'):
+                            ui.element('div').classes('h-[6px] w-[6px] rounded-full bg-gray-400')
+                        # vertical line
+                        ui.element('div').classes('w-[1px] rounded-full grow bg-gray-300')
+
+                    # RIGHT CONTENT (you can fill this freely)
+                    self.container = ui.column().classes('grow min-w-0')
+
     with ui.list().props('dense').classes('w-full max-w-xl'):
         dummy_tracker = ui.expansion(text='Hello').props('dense').classes('w-full')
+
         with dummy_tracker.add_slot('header'):
             with ui.item_section().classes('w-full'):
                 with ui.row().classes('items-center gap-2'):
                     ui.icon('sym_o_token').classes('text-xl')
                     ui.label('Hello! I am thinking!').classes('shimmer')
+
+        with dummy_tracker:
+            with ui.list().props('dense').classes('w-full'):
+                with ProgressItem() as item:
+                    with item.container:
+                        ui.label('Debugging invisible text')
+                        ui.label(
+                            'Add a solid base layer under the gradient so the text remains visible '
+                            'even when most of the gradient is transparent.'
+                        )
+
+                with ProgressItem() as item:
+                    with item.container:
+                        ui.label('Follow-up observation')
+                        ui.label(
+                            'Confirmed the base background layer prevents the text from vanishing '
+                            'across themes and backgrounds.'
+                        )
 
     with ui.card().tight().classes('w-full max-w-xl'):
         with ui.card_section().classes('w-full'):
