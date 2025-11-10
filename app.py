@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from nicegui import ui
+from nicegui import app, ui
 
 from agent_service import run_plan_execute
 from events import AgentEvent, EventPublisher
 from ui_components.step_tracker import StepTracker
 
+BASE_DIR = Path(__file__).parent
+STYLE_PATH = BASE_DIR / 'style.css'
+
+app.add_static_file(local_file=STYLE_PATH, url_path='/style.css')
+ui.add_head_html('<link rel="stylesheet" href="/style.css">', shared=True)
+
+ui.query('.nicegui-content').classes('p-0 gap-0')
 
 event_log = None
 step_tracker: StepTracker | None = None
@@ -106,6 +114,14 @@ with ui.column().classes(
             ask_button = ui.button("Ask", on_click=on_submit).props('padding="xs md"').classes('ml-auto')
 
     step_tracker = StepTracker()
+
+    with ui.list().props('dense').classes('w-full max-w-xl'):
+        dummy_tracker = ui.expansion(text='Hello').props('dense').classes('w-full')
+        with dummy_tracker.add_slot('header'):
+            with ui.item_section().classes('w-full'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('sym_o_token').classes('text-xl')
+                    ui.label('Hello! I am thinking!').classes('shimmer')
 
     with ui.card().tight().classes('w-full max-w-xl'):
         with ui.card_section().classes('w-full'):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from nicegui import ui
 
@@ -8,32 +8,62 @@ from events import AgentEvent
 
 
 class StepTracker(ui.list):
-    """Simple expansion-backed list that mirrors agent progress."""
+    """Expansion list that mirrors agent steps with badges and header state."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.classes('w-full max-w-xl rounded-borders').props('bordered dense')
-
-        with self:
-            self._expansion = ui.expansion(text="Agent ready to go", icon="o_task", value=False).props('dense').classes('w-full')
-            
-            with self._expansion:
-                ui.query('.nicegui-expansion .q-expansion-item__content').style('padding:0',replace='gap:0')
-                self._event_list = ui.list().props('dense').classes('w-full text-sm')
+        # self.classes('w-full max-w-xl rounded-borders').props('bordered dense')
+        self.classes('w-full max-w-xl').props('dense')
 
         self._base_label = "Agent steps"
         self._step_index = 0
+        self._root_agent: Optional[str] = None
+
+        with self:
+            self._expansion = ui.expansion(value=False).props('dense').classes('w-full')
+
+            with self._expansion.add_slot('header'):
+                with ui.item().classes('w-full items-center px-0').props('dense'):
+                    with ui.item_section().props('avatar').classes('items-center justify-center'):
+                        self._avatar_icon = ui.icon('smart_toy').classes('text-secondary')
+                        self._avatar_spinner = ui.spinner(size='sm').classes('text-primary')
+                        self._avatar_check = ui.icon('check_circle').classes('text-positive')
+                    with ui.item_section():
+                        self._header_label = ui.label(self._base_label).classes('font-medium truncate')
+
+            with self._expansion:
+                ui.query('.nicegui-expansion .q-expansion-item__content').style('padding:0', replace='gap:0')
+                self._event_list = ui.list().props('dense').classes('w-full text-sm')
+
+        self._set_header_state('idle')
 
     async def handle_event(self, event: AgentEvent) -> None:
         """Async subscriber compatible with EventPublisher."""
-        self._step_index += 1
         summary = self._summarize_event(event)
-        self._append_item(summary)
+        self._maybe_update_run_state(event)
+
+        self._step_index += 1
+        self._append_item(self._step_index, summary)
         self._update_title(summary)
 
-    def _append_item(self, summary: str) -> None:
+    def _append_item(self, step_number: int, summary: str) -> None:
         with self._event_list:
-            item = ui.item(text=summary).props('clickable').classes('break-words w-full')
+            with ui.item().props('clickable').classes('w-full'):
+                with ui.item_section().props('avatar'):
+                    with ui.row().classes('items-center justify-center w-full'):
+                        ui.badge(text=str(step_number)).props('color=green-2 text-color=green-9').classes('px-2 py-0.5 rounded-borders text-xs font-medium flex items-center justify-center')
+                with ui.item_section():
+                    ui.item_label(summary)
+
+    def _maybe_update_run_state(self, event: AgentEvent) -> None:
+        if event.event_type == "agent_started_stream_event":
+            if self._root_agent is None:
+                self._root_agent = event.source
+            if event.source == self._root_agent:
+                self._set_header_state('running')
+        elif event.event_type == "agent_ended_stream_event" and self._root_agent == event.source:
+            self._set_header_state('done')
+
     @staticmethod
     def _summarize_event(event: AgentEvent) -> str:
         source = event.source
@@ -90,7 +120,14 @@ class StepTracker(ui.list):
     def reset(self) -> None:
         self._step_index = 0
         self._event_list.clear()
-        self._expansion.text = self._base_label
+        self._root_agent = None
+        self._header_label.text = self._base_label
+        self._set_header_state('idle')
 
     def _update_title(self, summary: str) -> None:
-        self._expansion.text = f"Step {self._step_index}: {summary}"
+        self._header_label.text = f"Step {self._step_index}: {summary}"
+
+    def _set_header_state(self, state: str) -> None:
+        self._avatar_icon.set_visibility(state == 'idle')
+        self._avatar_spinner.set_visibility(state == 'running')
+        self._avatar_check.set_visibility(state == 'done')
