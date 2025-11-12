@@ -134,6 +134,14 @@ with ui.column().classes(
                     # RIGHT CONTENT (free-form)
                     self.container = ui.column().classes('grow min-w-0 gap-2')
 
+    with ui.column().classes('w-full max-w-xl gradient-card rounded-borders p-4'):
+        with ui.row().classes('items-center gap-1 text-sm font-medium text-gray-800'):
+            ui.icon('o_auto_awesome').classes('text-base text-indigo-500')
+            ui.label('GPT-5 mini agent')
+        ui.label(
+            'Lightweight agent that plans, executes, and reports each reasoning step while streaming progress back to you.'
+        ).classes('text-xs text-gray-600 leading-snug')
+
     with ui.list().props('dense').classes('w-full max-w-xl'):
         dummy_tracker = ui.expansion(text='Hello').props('dense').classes('w-full')
 

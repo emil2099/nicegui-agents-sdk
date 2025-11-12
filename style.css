@@ -20,3 +20,13 @@
   from { background-position: 150% 0, 0 0; }
   to   { background-position: -150% 0, 0 0; }
 }
+
+.gradient-card {
+  /* border-radius: 10px; */
+  border: 1px solid transparent;
+  background-image:
+    linear-gradient(#fff, #fff), /* card face */
+    linear-gradient(135deg, #8a5cff, #3cc1c7); /* border */
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+}
