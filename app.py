@@ -10,6 +10,7 @@ from nicegui import app, ui
 from agent_service import run_plan_execute
 from events import AgentEvent, EventPublisher
 from ui_components.agent_stepper import AgentStepper
+from ui_components.agent_stepper_static import AgentStepperStatic
 from ui_components.step_tracker import StepTracker
 
 BASE_DIR = Path(__file__).parent
@@ -55,10 +56,19 @@ ui.card.default_props('flat bordered')
 with ui.column().classes(
     'w-full items-center justify-center px-4 pt-16 box-border gap-4'
 ):
+    # 1. Gradient Card
+    with ui.column().classes('w-full max-w-xl gradient-card rounded-borders p-4'):
+        with ui.row().classes('items-center gap-1 text-sm font-medium text-gray-800'):
+            ui.icon('o_auto_awesome').classes('text-base text-indigo-500')
+            ui.label('GPT-5 mini agent')
+        ui.label(
+            'Lightweight agent that plans, executes, and reports each reasoning step while streaming progress back to you.'
+        ).classes('text-xs text-gray-600 leading-snug')
+
+    # 2. Input Area
     with ui.card().tight().classes('w-full max-w-xl'):
         with ui.card_section().classes('w-full'):
             with ui.column().classes('gap-4'):
-                ui.label("GPT-5 mini agent").classes('font-medium')
 
                 prompt_input = ui.textarea(
                     placeholder="Ask me anything"
@@ -72,20 +82,23 @@ with ui.column().classes(
                         output_area.set_content("Please enter a prompt.")
                         ask_button.enable()
                         return
-
+                    
+                    # Reset UI
                     if event_log is not None:
                         event_log.clear()
                         event_log.push("listening for events…")
-
                     if step_tracker is not None:
                         step_tracker.reset()
-
+                    
+                    # Setup subscribers
                     subscribers = [ui_event_logger]
                     if step_tracker is not None:
                         subscribers.append(step_tracker.handle_event)
+                    subscribers.append(agent_stepper.handle_event)
 
                     event_publisher = EventPublisher(subscribers=subscribers)
 
+                    # Run Agent
                     stream = run_plan_execute(text, event_publisher=event_publisher)
 
                     chunks: list[str] = []
@@ -111,28 +124,33 @@ with ui.column().classes(
 
         ui.separator()
         with ui.card_actions().classes('w-full items-center justify-between gap-4 p-4'):
-
             ask_button = ui.button("Ask", on_click=on_submit).props('padding="xs md"').classes('ml-auto')
 
-    step_tracker = StepTracker()
-
-    with ui.column().classes('w-full max-w-xl gradient-card rounded-borders p-4'):
-        with ui.row().classes('items-center gap-1 text-sm font-medium text-gray-800'):
-            ui.icon('o_auto_awesome').classes('text-base text-indigo-500')
-            ui.label('GPT-5 mini agent')
-        ui.label(
-            'Lightweight agent that plans, executes, and reports each reasoning step while streaming progress back to you.'
-        ).classes('text-xs text-gray-600 leading-snug')
-
-    AgentStepper()
-
+    # Response Area (kept near input)
     with ui.card().tight().classes('w-full max-w-xl'):
         with ui.card_section().classes('w-full'):
             ui.label("Response").classes('font-medium')
-            output_area = ui.markdown("Waiting for a question…").classes('w-full min-h-[10rem]')
+            output_area = ui.markdown("Waiting for a question…").classes('w-full min-h-[5rem]')
 
-with ui.element().classes('w-full px-4 pb-16 box-border'):
-    with ui.card().tight().classes('w-full'):
+    # 3. Interactive Stepper
+    tool_map = {
+        "execute_step": "Executing research step",
+        "draft_plan": "Drafting a plan",
+        "random_number": "Generating random number",
+        "web_search": "Searching the web",
+        "code_interpreter": "Running code"
+    }
+    agent_stepper = AgentStepper(tool_title_map=tool_map)
+
+    # 4. Old Stepper
+    step_tracker = StepTracker()
+
+    # 5. Static Prototype
+    ui.label("Static Prototype (Comparison)").classes('text-xs font-bold text-gray-400 mt-4')
+    AgentStepperStatic()
+
+    # 6. Full Log
+    with ui.card().tight().classes('w-full max-w-xl'):
         with ui.card_section().classes('w-full'):
             ui.label("Event Log").classes('font-medium')
             event_log = ui.log(max_lines=200).classes('w-full min-h-[12rem] text-xs')
