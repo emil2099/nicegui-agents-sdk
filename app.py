@@ -42,57 +42,54 @@ with ui.column().classes(
                 'Lightweight agent that plans, executes, and reports each reasoning step while streaming progress back to you.'
             ).classes('text-xs text-gray-600 leading-snug mt-2')
 
-        # Input Row
-        with ui.row().classes('w-full items-start gap-2 no-wrap'):
-            prompt_input = ui.textarea(
-                placeholder="Ask me anything"
-            ).props("autogrow outlined dense rows=1").classes('w-full').style('flex: 1;')
+        # Input Area
+        prompt_input = ui.textarea(
+            placeholder="Ask me anything"
+        ).props("autogrow outlined dense rows=1").classes('w-full')
+        
+        async def on_submit() -> None:
+            ask_button.disable()
+            output_area.set_content("Thinking…")
+            text = prompt_input.value.strip()
+            if not text:
+                output_area.set_content("Please enter a prompt.")
+                ask_button.enable()
+                return
             
-            # Defined later, but we need the reference for on_click if we define on_submit here.
-            # We can define on_submit wrapper here.
+            # Reset UI
+            if event_log is not None:
+                event_log.clear()
+                event_log.push("listening for events…")
+            if step_tracker is not None:
+                step_tracker.reset()
             
-            async def on_submit() -> None:
-                ask_button.disable()
-                output_area.set_content("Thinking…")
-                text = prompt_input.value.strip()
-                if not text:
-                    output_area.set_content("Please enter a prompt.")
-                    ask_button.enable()
-                    return
-                
-                # Reset UI
+            # Setup subscribers
+            async def ui_logger(event):
+                await log_event_to_ui(event_log, event)
+
+            subscribers = [ui_logger]
+            if step_tracker is not None:
+                subscribers.append(step_tracker.handle_event)
+            subscribers.append(agent_stepper.handle_event)
+
+            event_publisher = EventPublisher(subscribers=subscribers)
+
+            # Run Agent
+            try:
+                await run_agent_cycle(
+                    prompt=text,
+                    event_publisher=event_publisher,
+                    output_callback=output_area.set_content
+                )
+            except Exception as e:
+                output_area.set_content(f"Error: {e}")
                 if event_log is not None:
-                    event_log.clear()
-                    event_log.push("listening for events…")
-                if step_tracker is not None:
-                    step_tracker.reset()
-                
-                # Setup subscribers
-                async def ui_logger(event):
-                    await log_event_to_ui(event_log, event)
+                    event_log.push(f"error: {e}")
+            finally:
+                ask_button.enable()
 
-                subscribers = [ui_logger]
-                if step_tracker is not None:
-                    subscribers.append(step_tracker.handle_event)
-                subscribers.append(agent_stepper.handle_event)
-
-                event_publisher = EventPublisher(subscribers=subscribers)
-
-                # Run Agent
-                try:
-                    await run_agent_cycle(
-                        prompt=text,
-                        event_publisher=event_publisher,
-                        output_callback=output_area.set_content
-                    )
-                except Exception as e:
-                    output_area.set_content(f"Error: {e}")
-                    if event_log is not None:
-                        event_log.push(f"error: {e}")
-                finally:
-                    ask_button.enable()
-
-            ask_button = ui.button("Ask", on_click=on_submit).props('padding="xs lg"').classes('h-10')
+        with ui.row().classes('w-full justify-end'):
+            ask_button = ui.button("Ask", on_click=on_submit).props('padding="xs lg"')
 
     # 2. Interactive Stepper (Agent Progress)
     tool_map = {
@@ -102,7 +99,10 @@ with ui.column().classes(
         "web_search": "Searching the web",
         "code_interpreter": "Running code"
     }
-    agent_stepper = AgentStepper(tool_title_map=tool_map)
+    agent_stepper = AgentStepper(
+        tool_title_map=tool_map,
+        hidden_tool_details=["execute_step"]
+    )
 
     # 3. Response Area
     with ui.card().tight().classes('w-full max-w-xl'):

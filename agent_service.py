@@ -16,7 +16,7 @@ from agent_event_hooks import EventPublishingHook, emit_agent_event
 
 load_dotenv()
 
-default_model = 'gpt-4.1'
+default_model = 'gpt-5.1'
 default_model_settings = ModelSettings(tool_choice="auto")
 
 class PlanStep(BaseModel):

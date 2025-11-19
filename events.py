@@ -11,6 +11,7 @@ class AgentEvent(BaseModel):
     event_type: str
     event_name: Optional[str] = None
     source: str
+    span_id: Optional[str] = None
     data: Dict[str, Any] = Field(default_factory=dict)
 
 # Define the subscriber as an async callable

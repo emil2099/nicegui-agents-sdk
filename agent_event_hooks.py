@@ -7,6 +7,7 @@ from typing import Any, Optional
 from agents import Agent, AgentHooks, ModelResponse, RunContextWrapper, Tool, TResponseInputItem
 
 from events import AgentEvent, EventPublisher
+from agents.tracing import get_current_span
 
 
 def get_event_publisher(context_wrapper: RunContextWrapper) -> Optional[EventPublisher]:
@@ -24,9 +25,12 @@ async def emit_agent_event(
     **data: Any,
 ) -> None:
     publisher = get_event_publisher(context_wrapper)
+    span = get_current_span()
+    span_id = span.span_id if span else None
+    
     if publisher:
         await publisher.publish_event(
-            AgentEvent(event_type=event_type, source=source, data=data)
+            AgentEvent(event_type=event_type, source=source, span_id=span_id, data=data)
         )
 
 
@@ -138,6 +142,15 @@ class EventPublishingHook(AgentHooks):
                             "tool_code_interpreter_event",
                             code=item.code,
                             outputs=item.outputs,
+                            tool_call_id=item.id
+                        )
+                    elif item.type == 'function_call':
+                        await self._emit(
+                            context,
+                            agent.name,
+                            "tool_call_detected_event",
+                            tool_name=item.name,
+                            arguments=item.arguments,
                             tool_call_id=item.id
                         )
 

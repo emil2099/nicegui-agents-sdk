@@ -29,6 +29,7 @@ class Step:
     type: StepType
     title: str
     status: StepStatus = StepStatus.PENDING
+    span_id: Optional[str] = None
     data: Dict[str, Any] = field(default_factory=dict)
     
     def update(self, **kwargs):
@@ -43,13 +44,14 @@ class StepManager:
         self._main_agent_name: Optional[str] = None
         self.tool_title_map = tool_title_map or {} 
 
-    def _create_step(self, type: StepType, title: str, data: Dict[str, Any] = None) -> Step:
+    def _create_step(self, type: StepType, title: str, data: Dict[str, Any] = None, span_id: str = None) -> Step:
         self._step_counter += 1
         return Step(
             id=f"step_{self._step_counter}",
             type=type,
             title=title,
             status=StepStatus.RUNNING,
+            span_id=span_id,
             data=data or {}
         )
 
@@ -119,6 +121,25 @@ class StepManager:
             self.steps.append(step)
             affected_steps.append(step)
 
+        elif event.event_type == "tool_call_detected_event":
+            # Create a PENDING step for the tool call
+            tool_name = event.data.get("tool_name", "Unknown Tool")
+            title = self._get_tool_title(tool_name)
+            
+            step = self._create_step(
+                StepType.TOOL, 
+                title, 
+                data={
+                    "tool_type": "code_interpreter" if tool_name == "code_interpreter" else "generic",
+                    "tool_name": tool_name,
+                    "arguments": event.data.get("arguments"),
+                    "call_id": event.data.get("tool_call_id")
+                }
+            )
+            step.status = StepStatus.PENDING
+            self.steps.append(step)
+            affected_steps.append(step)
+
         elif event.event_type == "tool_started_stream_event":
             # If the last step is already a "Running code" step (created by tool_code_interpreter_event),
             # we don't want to create a duplicate generic tool step.
@@ -126,7 +147,9 @@ class StepManager:
                 # Just update the title if needed, or ignore
                 pass
             else:
-                self._complete_last_step()
+                # Do NOT complete last step automatically to allow parallel tools
+                # self._complete_last_step()
+                
                 tool_name = "Unknown Tool"
                 if event.data and "tool" in event.data:
                     tool = event.data["tool"]
@@ -138,32 +161,65 @@ class StepManager:
                 # Map tool names to friendlier titles
                 title = self._get_tool_title(tool_name)
                 
-                step = self._create_step(StepType.TOOL, title, data=event.data)
-                self.steps.append(step)
+                # Check for existing PENDING step for this tool
+                # We match by tool_name and PENDING status. 
+                # Since we process events in order, the first PENDING step for this tool should be the one.
+                existing_step = next((s for s in self.steps if s.type == StepType.TOOL and s.status == StepStatus.PENDING and s.data.get("tool_name") == tool_name), None)
+                
+                if existing_step:
+                    step = existing_step
+                    step.status = StepStatus.RUNNING
+                    step.span_id = event.span_id
+                    # Merge data (keep arguments)
+                    step.data.update(event.data)
+                else:
+                    step = self._create_step(StepType.TOOL, title, data=event.data, span_id=event.span_id)
+                    self.steps.append(step)
+                
                 affected_steps.append(step)
 
         elif event.event_type == "tool_ended_stream_event":
             print(f"[\033[94mStepManager\033[0m] tool_ended_stream_event received")
-            if self.steps and self.steps[-1].type == StepType.TOOL:
-                print(f"  Last step type: {self.steps[-1].data.get('tool_type')}")
+            
+            # Find step by span_id if available
+            target_step = None
+            if event.span_id:
+                target_step = next((s for s in reversed(self.steps) if s.span_id == event.span_id and s.status == StepStatus.RUNNING), None)
+            
+            # Fallback to last running tool step if no span_id match
+            if not target_step and self.steps and self.steps[-1].type == StepType.TOOL and self.steps[-1].status == StepStatus.RUNNING:
+                target_step = self.steps[-1]
+
+            if target_step:
+                print(f"  Target step: {target_step.title} (id={target_step.id})")
                 print(f"  Event data keys: {event.data.keys() if event.data else 'None'}")
                 print(f"  Result: {str(event.data.get('result'))[:100] if event.data else 'None'}...")
                 
-                self.steps[-1].status = StepStatus.COMPLETED
+                target_step.status = StepStatus.COMPLETED
                 if event.data:
                     # Update data with result
-                    self.steps[-1].data.update(event.data)
+                    target_step.data.update(event.data)
                     
                     # If this was a code interpreter step, ensure 'outputs' is populated from 'result' if needed
-                    if self.steps[-1].data.get("tool_type") == "code_interpreter":
+                    if target_step.data.get("tool_type") == "code_interpreter" or target_step.data.get("tool_name") == "code_interpreter":
                         result = event.data.get("result")
-                        print(f"  Code interpreter result: {result}")
+                        print(f"DEBUG: Code Interpreter Step Found. Result: {result}")
+                        print(f"DEBUG: Current Outputs: {target_step.data.get('outputs')}")
+                        
                         # If we didn't have outputs before, use result
-                        if not self.steps[-1].data.get("outputs") and result:
-                            self.steps[-1].data["outputs"] = [result] # Wrap in list to match renderer expectation
-                            print(f"  Updated outputs: {self.steps[-1].data['outputs']}")
+                        if result:
+                            if not target_step.data.get("outputs"):
+                                target_step.data["outputs"] = [result]
+                                print("DEBUG: Set initial outputs from result")
+                            elif isinstance(target_step.data["outputs"], list) and result not in target_step.data["outputs"]:
+                                target_step.data["outputs"].append(result)
+                                print("DEBUG: Appended result to outputs")
                             
-                affected_steps.append(self.steps[-1])
+                            print(f"  Updated outputs: {target_step.data['outputs']}")
+                    else:
+                        print(f"DEBUG: Step type is {target_step.data.get('tool_type')}, not code_interpreter")
+                            
+                affected_steps.append(target_step)
 
         elif event.event_type == "agent_ended_stream_event":
             self._complete_last_step()
@@ -243,6 +299,9 @@ class ThinkingRenderer:
 
 
 class ToolRenderer:
+    def __init__(self, hidden_tool_details: List[str] = None):
+        self.hidden_tool_details = hidden_tool_details or []
+
     def can_handle(self, step: Step) -> bool:
         return step.type == StepType.TOOL
 
@@ -254,14 +313,53 @@ class ToolRenderer:
                     ui.icon('sym_o_search').classes('text-lg text-gray-600')
                     ui.label(step.title).classes('font-medium')
             else:
-                ui.label(step.title).classes('text-gray-500')
-            
+                # Generic Tool Header
+                with ui.column().classes('w-full gap-1'):
+                    # Title
+                    ui.label(step.title).classes('text-gray-700 font-medium')
+                    
+                    # Check if details should be hidden
+                    tool_name = step.data.get('tool_name', 'tool')
+                    if tool_name in self.hidden_tool_details:
+                        return
+
+                    # Arguments (Minimalist Function Call style)
+                    arguments = step.data.get('arguments')
+                    if arguments:
+                        tool_name = step.data.get('tool_name', 'tool')
+                        
+                        # Format arguments
+                        import json
+                        try:
+                            if isinstance(arguments, str):
+                                parsed = json.loads(arguments)
+                                # If it's a dict, format it nicely inside the function call
+                                args_str = json.dumps(parsed, indent=2)
+                                # Indent the args to look like a function body
+                                args_str = args_str.replace('\n', '\n  ')
+                                display_code = f"{tool_name}(\n  {args_str}\n)"
+                            else:
+                                display_code = f"{tool_name}({str(arguments)})"
+                        except:
+                            display_code = f"{tool_name}({str(arguments)})"
+                            
+                        # Clean, light code block (Matching Output style)
+                        with ui.element('div').classes('w-full mt-1 pl-2 border-l-2 border-gray-200'):
+                            ui.label("Function call").classes('text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1')
+                            # Use markdown for consistency and wrapping
+                            ui.markdown(f"```python\n{display_code}\n```").classes('w-full text-xs text-gray-600 font-mono [&_pre]:whitespace-pre-wrap [&_pre]:break-all')
+
             if step.status == StepStatus.COMPLETED:
                 result = step.data.get('result', 'No result')
-                result_str = str(result)
                 
-                # Use CSS truncation for better UX
-                ui.label(result_str).classes('text-sm text-gray-600 w-full truncate')
+                # Output (Minimalist)
+                with ui.element('div').classes('w-full mt-1 pl-2 border-l-2 border-gray-200'):
+                    ui.label("Output").classes('text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1')
+                    
+                    result_str = str(result)
+                    # Use markdown code block for result, but cleaner
+                    # Added [&_pre]:whitespace-pre-wrap to force wrapping in the generated pre tag
+                    ui.markdown(f"```\n{result_str}\n```").classes('w-full text-xs text-gray-700 font-mono max-h-60 overflow-y-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-all')
                 
 class WebSearchRenderer:
     def can_handle(self, step: Step) -> bool:
@@ -351,44 +449,39 @@ class CodeInterpreterRenderer:
 
     def render(self, step: Step, container: ui.element) -> None:
         with container:
-            # 1. Header Row
-            with ui.row().classes('items-center gap-2'):
-                ui.icon('terminal').classes('text-lg text-gray-600')
-                ui.label('Running Code').classes('font-medium')
-            
-            # 2. Content Card
-            with ui.card().props('flat bordered').classes('w-full bg-gray-50 p-0 overflow-hidden'):
-                with ui.column().classes('w-full gap-0'):
-                    # Code Block
-                    code = step.data.get('code', '')
-                    if code:
-                        # Use ui.code for syntax highlighting
-                        # Remove default padding/margin to fit card
-                        ui.code(code, language='python').classes('w-full text-xs bg-transparent p-3')
-                    
-                    # Outputs (only if completed and has output)
-                    outputs = step.data.get('outputs')
-                    if outputs:
-                        ui.separator().classes('bg-gray-200')
-                        with ui.column().classes('w-full p-3 bg-white'):
-                            ui.label("Output:").classes('text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wider')
-                            
-                            for output in outputs:
-                                # Handle different output types
-                                # 1. String output (most common)
-                                if isinstance(output, str):
-                                    ui.markdown(f"```\n{output}\n```").classes('w-full text-xs text-gray-700 font-mono max-h-40 overflow-y-auto')
+            # Generic Tool Header Style
+            with ui.column().classes('w-full gap-1'):
+                # Title
+                ui.label('Running Code').classes('text-gray-700 font-medium')
+                
+                # Code Block (Arguments style)
+                code = step.data.get('code', '')
+                if code:
+                    with ui.element('div').classes('w-full mt-1 pl-2 border-l-2 border-gray-200'):
+                        ui.label("Code").classes('text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1')
+                        ui.code(code, language='python').classes('w-full text-xs !bg-transparent !p-0 text-gray-600')
+                
+                # Outputs (Output style)
+                outputs = step.data.get('outputs')
+                if outputs:
+                    with ui.element('div').classes('w-full mt-1 pl-2 border-l-2 border-gray-200'):
+                        ui.label("Output").classes('text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1')
+                        
+                        for output in outputs:
+                            # Handle different output types
+                            content = ""
+                            if isinstance(output, str):
+                                content = output
+                            elif hasattr(output, 'logs') and output.logs:
+                                content = output.logs
+                            elif hasattr(output, 'image') and output.image:
+                                ui.label("[Image Output]").classes('text-gray-500 italic text-xs')
+                                continue
+                            else:
+                                content = str(output)
                                 
-                                # 2. Object with logs/image (if structured)
-                                elif hasattr(output, 'logs') and output.logs:
-                                    ui.markdown(f"```\n{output.logs}\n```").classes('w-full text-xs text-gray-700 font-mono max-h-40 overflow-y-auto')
-                                elif hasattr(output, 'image') and output.image:
-                                    ui.label("[Image Output]").classes('text-gray-500 italic text-xs')
-                                    # If we had base64 image handling, we'd render it here
-                                
-                                # 3. Fallback
-                                else:
-                                    ui.label(str(output)).classes('text-xs text-gray-600 font-mono truncate')
+                            if content:
+                                ui.markdown(f"```\n{content}\n```").classes('w-full text-xs text-gray-700 font-mono max-h-60 overflow-y-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-all')
 
 
 
@@ -405,12 +498,20 @@ class AgentStepper(ui.list):
     Matches the static prototype structure.
     """
 
-    def __init__(self, tool_title_map: Optional[Dict[str, str]] = None) -> None:
+    def __init__(self, tool_title_map: Optional[Dict[str, str]] = None, hidden_tool_details: List[str] = None) -> None:
         super().__init__()
         self.manager = StepManager(tool_title_map=tool_title_map)
         self.step_ui_map: Dict[str, Any] = {} 
         self._main_agent_name: Optional[str] = None
         
+        self.renderers = [
+            ThinkingRenderer(),
+            WebSearchRenderer(),
+            CodeInterpreterRenderer(),
+            ToolRenderer(hidden_tool_details=hidden_tool_details), # Generic fallback
+            FinishedRenderer()
+        ]
+
         self.props('dense').classes('w-full max-w-xl gap-0')
         
         with self:
@@ -485,8 +586,7 @@ class AgentStepper(ui.list):
                 self._render_step_content(step, item.container)
 
     def _render_step_content(self, step: Step, container: ui.element) -> None:
-        renderers = [ThinkingRenderer(), WebSearchRenderer(), CodeInterpreterRenderer(), ToolRenderer(), FinishedRenderer()]
-        for renderer in renderers:
+        for renderer in self.renderers:
             if renderer.can_handle(step):
                 renderer.render(step, container)
                 break
