@@ -53,62 +53,126 @@ class StepManager:
             data=data or {}
         )
 
-    def handle_event(self, event: AgentEvent) -> Optional[Step]:
+    def handle_event(self, event: AgentEvent) -> List[Step]:
+        affected_steps = []
+
         if event.event_type == "agent_started_stream_event":
             if not self._main_agent_name:
                 self._main_agent_name = event.source
             
             if event.source != self._main_agent_name:
-                return None
+                return []
 
-        if self._main_agent_name and event.source != self._main_agent_name:
-            return None
+        # Filter logic:
+        # 1. Always allow specific hosted tool events regardless of source (to support sub-agents)
+        if event.event_type in ["tool_web_search_event", "tool_code_interpreter_event"]:
+            pass # Allow these to proceed
+        
+        # 2. For other events, strictly filter by main agent to avoid cluttering the UI with sub-agent thoughts
+        elif self._main_agent_name and event.source != self._main_agent_name:
+            return []
 
         if event.event_type == "llm_started_stream_event":
             self._complete_last_step()
             step = self._create_step(StepType.THINKING, "Thinking...", data=event.data)
             self.steps.append(step)
-            return step
+            affected_steps.append(step)
 
         elif event.event_type == "llm_ended_stream_event":
             if self.steps and self.steps[-1].type == StepType.THINKING:
                 self.steps[-1].status = StepStatus.COMPLETED
                 if event.data:
                     self.steps[-1].data.update(event.data)
-                return self.steps[-1]
+                affected_steps.append(self.steps[-1])
+            
+            # Note: We no longer parse tool calls here as we use specific events now.
+
+        elif event.event_type == "tool_web_search_event":
+            # Create a completed step for the web search
+            step = self._create_step(
+                StepType.TOOL, 
+                "Searching the web", 
+                data={
+                    "tool_type": "web_search",
+                    "query": event.data.get("query"),
+                    "sources": event.data.get("sources")
+                }
+            )
+            step.status = StepStatus.COMPLETED
+            self.steps.append(step)
+            affected_steps.append(step)
+
+        elif event.event_type == "tool_code_interpreter_event":
+             # Create a RUNNING step for code interpreter
+             # We will update this step when tool_ended_stream_event arrives with the result
+            step = self._create_step(
+                StepType.TOOL, 
+                "Running code", 
+                data={
+                    "tool_type": "code_interpreter",
+                    "code": event.data.get("code"),
+                    # outputs might be empty here if it's just the call
+                    "outputs": event.data.get("outputs") 
+                }
+            )
+            step.status = StepStatus.RUNNING
+            self.steps.append(step)
+            affected_steps.append(step)
 
         elif event.event_type == "tool_started_stream_event":
-            self._complete_last_step()
-            tool_name = "Unknown Tool"
-            if event.data and "tool" in event.data:
-                tool = event.data["tool"]
-                if hasattr(tool, "name"):
-                    tool_name = tool.name
-                elif isinstance(tool, dict):
-                    tool_name = tool.get("name", "Unknown Tool")
-            
-            # Map tool names to friendlier titles
-            title = self._get_tool_title(tool_name)
-            
-            step = self._create_step(StepType.TOOL, title, data=event.data)
-            self.steps.append(step)
-            return step
+            # If the last step is already a "Running code" step (created by tool_code_interpreter_event),
+            # we don't want to create a duplicate generic tool step.
+            if self.steps and self.steps[-1].data.get("tool_type") == "code_interpreter" and self.steps[-1].status == StepStatus.RUNNING:
+                # Just update the title if needed, or ignore
+                pass
+            else:
+                self._complete_last_step()
+                tool_name = "Unknown Tool"
+                if event.data and "tool" in event.data:
+                    tool = event.data["tool"]
+                    if hasattr(tool, "name"):
+                        tool_name = tool.name
+                    elif isinstance(tool, dict):
+                        tool_name = tool.get("name", "Unknown Tool")
+                
+                # Map tool names to friendlier titles
+                title = self._get_tool_title(tool_name)
+                
+                step = self._create_step(StepType.TOOL, title, data=event.data)
+                self.steps.append(step)
+                affected_steps.append(step)
 
         elif event.event_type == "tool_ended_stream_event":
+            print(f"[\033[94mStepManager\033[0m] tool_ended_stream_event received")
             if self.steps and self.steps[-1].type == StepType.TOOL:
+                print(f"  Last step type: {self.steps[-1].data.get('tool_type')}")
+                print(f"  Event data keys: {event.data.keys() if event.data else 'None'}")
+                print(f"  Result: {str(event.data.get('result'))[:100] if event.data else 'None'}...")
+                
                 self.steps[-1].status = StepStatus.COMPLETED
                 if event.data:
+                    # Update data with result
                     self.steps[-1].data.update(event.data)
-                return self.steps[-1]
+                    
+                    # If this was a code interpreter step, ensure 'outputs' is populated from 'result' if needed
+                    if self.steps[-1].data.get("tool_type") == "code_interpreter":
+                        result = event.data.get("result")
+                        print(f"  Code interpreter result: {result}")
+                        # If we didn't have outputs before, use result
+                        if not self.steps[-1].data.get("outputs") and result:
+                            self.steps[-1].data["outputs"] = [result] # Wrap in list to match renderer expectation
+                            print(f"  Updated outputs: {self.steps[-1].data['outputs']}")
+                            
+                affected_steps.append(self.steps[-1])
 
         elif event.event_type == "agent_ended_stream_event":
             self._complete_last_step()
             step = self._create_step(StepType.FINISHED, "Finished", data=event.data)
             step.status = StepStatus.COMPLETED
             self.steps.append(step)
-            return step
+            affected_steps.append(step)
 
-        return None
+        return affected_steps
 
     def _complete_last_step(self):
         if self.steps and self.steps[-1].status == StepStatus.RUNNING:
@@ -176,8 +240,6 @@ class ThinkingRenderer:
     def render(self, step: Step, container: ui.element) -> None:
         with container:
             label = ui.label(step.title).classes('text-gray-500')
-            if step.status == StepStatus.RUNNING:
-                label.classes('shimmer')
 
 
 class ToolRenderer:
@@ -201,8 +263,134 @@ class ToolRenderer:
                 # Use CSS truncation for better UX
                 ui.label(result_str).classes('text-sm text-gray-600 w-full truncate')
                 
-                # We could try to parse links here for the "card" look, but for now keep it simple
-                # as per "best effort" mapping.
+class WebSearchRenderer:
+    def can_handle(self, step: Step) -> bool:
+        return step.type == StepType.TOOL and step.data.get("tool_type") == "web_search"
+
+    def render(self, step: Step, container: ui.element) -> None:
+        with container:
+            # 1. Header Row
+            with ui.row().classes('items-center gap-2'):
+                ui.icon('sym_o_search').classes('text-lg text-gray-600')
+                ui.label('Searching the web').classes('font-medium')
+
+            # 2. Content Card
+            with ui.card().props('flat bordered').classes('w-full bg-gray-50 p-3'):
+                with ui.column().classes('w-full gap-2'):
+                    # Optional description (could be dynamic if we had it)
+                    # ui.label('Searching for information...').classes('text-sm text-gray-600')
+
+                    # Query Box
+                    with ui.row().classes('w-full items-center no-wrap gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2'):
+                        ui.icon('sym_o_search').classes('text-gray-500')
+                        ui.label(step.data.get('query', 'Searching...')).classes('text-sm text-gray-700 grow min-w-0 truncate')
+
+            # 3. Sources (if available)
+            sources = step.data.get('sources')
+            if sources:
+                # "Reviewing sources" Header
+                with ui.row().classes('items-center gap-2 mt-2'):
+                    ui.icon('library_books').classes('text-xs text-gray-500')
+                    ui.label(f"Reviewing sources").classes('text-xs text-gray-500 font-medium')
+                    with ui.element('div').classes('bg-gray-200 px-1.5 rounded text-[10px] text-gray-600'):
+                        ui.label(str(len(sources)))
+
+                # Sources List (Vertical List)
+                with ui.list().props('dense separator').classes('w-full border border-gray-200 rounded-md mt-1 bg-white'):
+                    for source in sources:
+                        # Robust Extraction Logic
+                        url = None
+                        title = None
+                        
+                        # 1. Try attribute access (Pydantic model)
+                        if hasattr(source, 'url'):
+                            url = source.url
+                        if hasattr(source, 'title'):
+                            title = source.title
+                            
+                        # 2. Try dict access
+                        if url is None and isinstance(source, dict):
+                            url = source.get('url')
+                        if title is None and isinstance(source, dict):
+                            title = source.get('title')
+                            
+                        # 3. Fallback
+                        if url is None: 
+                            url = str(source)
+                        if title is None: 
+                            title = url
+
+                        # Domain extraction
+                        domain = ""
+                        try:
+                            from urllib.parse import urlparse
+                            if url and url.startswith('http'):
+                                domain = urlparse(url).netloc.replace('www.', '')
+                        except:
+                            pass
+
+                        # List Item as Link
+                        # Use tag="a" in props for real hyperlink behavior
+                        with ui.item().props(f'tag="a" href="{url}" target="_blank" clickable dense').classes('hover:bg-gray-50 transition-colors text-decoration-none pl-2 pr-2'):
+                            # Single section with row for tight control over icon/text spacing
+                            with ui.item_section():
+                                with ui.row().classes('items-center w-full gap-2 no-wrap'):
+                                    # Icon
+                                    ui.icon('public').classes('text-gray-400 text-xs shrink-0')
+                                    
+                                    # Title
+                                    ui.label(title).classes('text-xs text-gray-700 truncate font-medium grow')
+                                    
+                                    # Domain
+                                    if domain:
+                                        ui.label(domain).classes('text-[10px] text-gray-400 shrink-0')
+
+class CodeInterpreterRenderer:
+    def can_handle(self, step: Step) -> bool:
+        return step.type == StepType.TOOL and step.data.get("tool_type") == "code_interpreter"
+
+    def render(self, step: Step, container: ui.element) -> None:
+        with container:
+            # 1. Header Row
+            with ui.row().classes('items-center gap-2'):
+                ui.icon('terminal').classes('text-lg text-gray-600')
+                ui.label('Running Code').classes('font-medium')
+            
+            # 2. Content Card
+            with ui.card().props('flat bordered').classes('w-full bg-gray-50 p-0 overflow-hidden'):
+                with ui.column().classes('w-full gap-0'):
+                    # Code Block
+                    code = step.data.get('code', '')
+                    if code:
+                        # Use ui.code for syntax highlighting
+                        # Remove default padding/margin to fit card
+                        ui.code(code, language='python').classes('w-full text-xs bg-transparent p-3')
+                    
+                    # Outputs (only if completed and has output)
+                    outputs = step.data.get('outputs')
+                    if outputs:
+                        ui.separator().classes('bg-gray-200')
+                        with ui.column().classes('w-full p-3 bg-white'):
+                            ui.label("Output:").classes('text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wider')
+                            
+                            for output in outputs:
+                                # Handle different output types
+                                # 1. String output (most common)
+                                if isinstance(output, str):
+                                    ui.markdown(f"```\n{output}\n```").classes('w-full text-xs text-gray-700 font-mono max-h-40 overflow-y-auto')
+                                
+                                # 2. Object with logs/image (if structured)
+                                elif hasattr(output, 'logs') and output.logs:
+                                    ui.markdown(f"```\n{output.logs}\n```").classes('w-full text-xs text-gray-700 font-mono max-h-40 overflow-y-auto')
+                                elif hasattr(output, 'image') and output.image:
+                                    ui.label("[Image Output]").classes('text-gray-500 italic text-xs')
+                                    # If we had base64 image handling, we'd render it here
+                                
+                                # 3. Fallback
+                                else:
+                                    ui.label(str(output)).classes('text-xs text-gray-600 font-mono truncate')
+
+
 
 class FinishedRenderer:
     def can_handle(self, step: Step) -> bool:
@@ -242,9 +430,11 @@ class AgentStepper(ui.list):
                 self.status_label = ui.label('Agent Ready').classes('text-gray-700')
 
     async def handle_event(self, event: AgentEvent) -> None:
-        affected_step = self.manager.handle_event(event)
+        affected_steps = self.manager.handle_event(event)
         
-        self._update_header(event, affected_step)
+        # Update header based on the event and the last affected step (if any)
+        last_step = affected_steps[-1] if affected_steps else None
+        self._update_header(event, last_step)
         
         if event.event_type == "agent_started_stream_event":
             # Reset if it's a new main agent run
@@ -254,8 +444,8 @@ class AgentStepper(ui.list):
                 self.step_ui_map.clear()
                 self.expansion.open()
 
-        if affected_step:
-            self._update_step_ui(affected_step)
+        for step in affected_steps:
+            self._update_step_ui(step)
 
     def _update_header(self, event: AgentEvent, step: Optional[Step] = None):
         # Only update header for the main manager agent
@@ -295,7 +485,7 @@ class AgentStepper(ui.list):
                 self._render_step_content(step, item.container)
 
     def _render_step_content(self, step: Step, container: ui.element) -> None:
-        renderers = [ThinkingRenderer(), ToolRenderer(), FinishedRenderer()]
+        renderers = [ThinkingRenderer(), WebSearchRenderer(), CodeInterpreterRenderer(), ToolRenderer(), FinishedRenderer()]
         for renderer in renderers:
             if renderer.can_handle(step):
                 renderer.render(step, container)

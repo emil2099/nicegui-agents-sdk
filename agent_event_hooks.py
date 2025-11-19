@@ -93,6 +93,54 @@ class EventPublishingHook(AgentHooks):
         agent: Agent,
         response: ModelResponse,
     ) -> None:
+        # Inspect output for hosted tool calls and emit specific events
+        if hasattr(response, 'output'):
+            # First, collect all annotations from any message items
+            # These likely contain the citations for the web searches in this turn
+            citations = []
+            seen_urls = set()
+            
+            for item in response.output:
+                if hasattr(item, 'type') and item.type == 'message':
+                    for content_part in item.content:
+                        if hasattr(content_part, 'annotations'):
+                            for annotation in content_part.annotations:
+                                if hasattr(annotation, 'type') and annotation.type == 'url_citation':
+                                    # Deduplicate by URL
+                                    if annotation.url not in seen_urls:
+                                        citations.append(annotation)
+                                        seen_urls.add(annotation.url)
+
+            # Now emit events, attaching citations to web_search calls
+            for item in response.output:
+                if hasattr(item, 'type'):
+                    if item.type == 'web_search_call':
+                        # Use citations found in the response as sources
+                        # If item.action.sources is None (which it usually is), use the collected citations
+                        sources = getattr(item.action, 'sources', None) or citations
+                        
+                        await self._emit(
+                            context,
+                            agent.name,
+                            "tool_web_search_event",
+                            query=item.action.query,
+                            sources=sources,
+                            tool_call_id=item.id
+                        )
+                    elif item.type == 'code_interpreter_call':
+                        print(f"[\033[94mCodeInterpreter\033[0m] Found code_interpreter_call in on_llm_end")
+                        print(f"  Code: {item.code[:50] if item.code else 'None'}...")
+                        print(f"  Outputs: {item.outputs}")
+                        
+                        await self._emit(
+                            context,
+                            agent.name,
+                            "tool_code_interpreter_event",
+                            code=item.code,
+                            outputs=item.outputs,
+                            tool_call_id=item.id
+                        )
+
         await self._emit(
             context,
             agent.name,
