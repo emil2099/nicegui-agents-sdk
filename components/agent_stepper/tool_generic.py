@@ -5,7 +5,7 @@ from nicegui import ui
 from .core import EventHandler, StepRenderer, EventContext, Step, StepType, StepStatus
 
 if TYPE_CHECKING:
-    from events import AgentEvent
+    from agentic.core.events import AgentEvent
 
 # ==============================================================================
 # Event Handler

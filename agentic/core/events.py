@@ -32,7 +32,7 @@ class EventPublisher:
                     # run sync subscribers immediately
                     subscriber(event)
             except Exception as e:
-                print(f"[EventPublisher Error] Failed to create task for {getattr(subscriber, '__name__', str(subscriber))}: {e}")
+
                 raise
         if tasks:
             await asyncio.gather(*tasks)

@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from agents import Agent, AgentHooks, ModelResponse, RunContextWrapper, Tool, TResponseInputItem
 
-from events import AgentEvent, EventPublisher
+from agentic.core.events import AgentEvent, EventPublisher
 from agents.tracing import get_current_span
 
 
@@ -132,9 +132,7 @@ class EventPublishingHook(AgentHooks):
                             tool_call_id=item.id
                         )
                     elif item.type == 'code_interpreter_call':
-                        print(f"[\033[94mCodeInterpreter\033[0m] Found code_interpreter_call in on_llm_end")
-                        print(f"  Code: {item.code[:50] if item.code else 'None'}...")
-                        print(f"  Outputs: {item.outputs}")
+
                         
                         await self._emit(
                             context,

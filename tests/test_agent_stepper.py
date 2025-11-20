@@ -1,15 +1,15 @@
 import unittest
 from datetime import datetime, timezone
 from typing import List
-from ui_components.agent_stepper import (
+from components.agent_stepper import (
     Step, StepType, StepStatus, EventContext, 
     EventHandlerRegistry
 )
 # Import handlers directly for testing
-from ui_components.agent_stepper.tool_thinking import ThinkingEventHandler
-from ui_components.agent_stepper.tool_generic import GenericToolEventHandler
-from ui_components.agent_stepper.lifecycle import LifecycleEventHandler
-from events import AgentEvent
+from components.agent_stepper.tool_thinking import ThinkingEventHandler
+from components.agent_stepper.tool_generic import GenericToolEventHandler
+from components.agent_stepper.lifecycle import LifecycleEventHandler
+from agentic.core.events import AgentEvent
 
 def create_event(event_type: str, source: str = "Manager", **data) -> AgentEvent:
     return AgentEvent(

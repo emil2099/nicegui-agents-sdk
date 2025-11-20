@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Dict, List, Optional, Any
 from nicegui import ui
-from events import AgentEvent
+from agentic.core.events import AgentEvent
 
 from .core import (
     Step, StepType, StepStatus, EventContext, 
@@ -23,7 +23,7 @@ class ProgressItem(ui.item):
     def __init__(self, *, final: bool = False):
         super().__init__()
         with self:
-            with ui.row().classes('w-full items-start no-wrap gap-2 overflow-clip mb-2'):
+            with ui.row().classes('w-full items-start no-wrap gap-2 overflow-clip mb-2 p-0'):
                 # LEFT RAIL / ICON COLUMN
                 with ui.column().classes('w-6 shrink-0 items-center self-stretch gap-0'):
                     if final:
@@ -61,16 +61,16 @@ class AgentStepper(ui.list):
         
         # UI State
         self.step_ui_map: Dict[str, Any] = {} 
-        self.props('dense').classes('w-full max-w-xl gap-0')
+        self.props('dense').classes('w-full max-w-xl gap-0 p-0')
         
         with self:
-            self.expansion = ui.expansion().props('dense default-opened').classes('w-full group')
+            self.expansion = ui.expansion().props('dense').classes('w-full')
             
             with self.expansion.add_slot('header'):
                 self._build_header()
             
             with self.expansion:
-                self.body_container = ui.list().props('dense').classes('w-full pl-0')
+                self.body_container = ui.list().props('dense').classes('w-full')
 
     def _register_defaults(self, hidden_tool_details: List[str] = None):
         # Thinking

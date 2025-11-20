@@ -15,7 +15,7 @@ The `AgentStepper` is a NiceGUI component designed to visualize the execution fl
 ### Basic Instantiation
 
 ```python
-from ui_components.agent_stepper import AgentStepper
+from components.agent_stepper import AgentStepper
 
 # Create the stepper
 stepper = AgentStepper()

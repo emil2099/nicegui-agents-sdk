@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Protocol, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nicegui import ui
-    from events import AgentEvent
+    from agentic.core.events import AgentEvent
 
 # ==============================================================================
 # Models
