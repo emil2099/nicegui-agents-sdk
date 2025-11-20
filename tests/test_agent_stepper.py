@@ -1,9 +1,17 @@
 import unittest
 from datetime import datetime, timezone
-from ui_components.agent_stepper import StepManager, StepType, StepStatus
+from typing import List
+from ui_components.agent_stepper import (
+    Step, StepType, StepStatus, EventContext, 
+    EventHandlerRegistry
+)
+# Import handlers directly for testing
+from ui_components.agent_stepper.tool_thinking import ThinkingEventHandler
+from ui_components.agent_stepper.tool_generic import GenericToolEventHandler
+from ui_components.agent_stepper.lifecycle import LifecycleEventHandler
 from events import AgentEvent
 
-def create_event(event_type: str, source: str = "test_agent", **data) -> AgentEvent:
+def create_event(event_type: str, source: str = "Manager", **data) -> AgentEvent:
     return AgentEvent(
         event_type=event_type,
         source=source,
@@ -11,78 +19,68 @@ def create_event(event_type: str, source: str = "test_agent", **data) -> AgentEv
         timestamp=datetime.now(timezone.utc)
     )
 
-class TestStepManager(unittest.TestCase):
-    def test_linear_flow(self):
-        manager = StepManager()
+class TestAgentStepperLogic(unittest.TestCase):
+    def setUp(self):
+        self.steps: List[Step] = []
+        self.tool_map = {}
+        # Initialize context with "Manager" as main agent
+        self.context = EventContext(self.steps, "Manager", self.tool_map)
         
-        # 1. Agent Starts
-        manager.handle_event(create_event("agent_started_stream_event", source="Manager"))
-        self.assertEqual(len(manager.steps), 0)
-        
-        # 2. Thinking
-        manager.handle_event(create_event("llm_started_stream_event", source="Manager"))
-        self.assertEqual(len(manager.steps), 1)
-        self.assertEqual(manager.steps[0].type, StepType.THINKING)
-        self.assertEqual(manager.steps[0].status, StepStatus.RUNNING)
-        
-        # 3. Tool Use (should replace or follow thinking? Plan says "Replaces or follows")
-        # Let's assume it follows for history tracking.
-        manager.handle_event(create_event("tool_started_stream_event", source="Manager", tool={"name": "execute_step"}))
-        
-        self.assertEqual(len(manager.steps), 2)
-        self.assertEqual(manager.steps[0].status, StepStatus.COMPLETED) # Thinking implicitly done
-        self.assertEqual(manager.steps[1].type, StepType.TOOL)
-        self.assertEqual(manager.steps[1].title, "Executing step")
-        
-        # 4. Nested Agent Events (should be ignored or treated as part of current tool step)
-        # Executor starts -> Ignored
-        manager.handle_event(create_event("agent_started_stream_event", source="Executor"))
-        self.assertEqual(len(manager.steps), 2)
-        
-        # Executor Thinking -> Ignored or updates tool step status?
-        # Plan says "Nested agent events are treated as part of the parent's current step or ignored"
-        # Let's ignore them to keep it simple, or maybe just log them?
-        # For now, verify they don't create new top-level steps.
-        manager.handle_event(create_event("llm_started_stream_event", source="Executor"))
-        self.assertEqual(len(manager.steps), 2)
-        
-        # 5. Tool Ends
-        manager.handle_event(create_event("tool_ended_stream_event", source="Manager", tool={"name": "execute_step"}, result="Done"))
-        self.assertEqual(manager.steps[1].status, StepStatus.COMPLETED)
-        
-        # 6. Final Message (LLM ends with message)
-        manager.handle_event(create_event("llm_ended_stream_event", source="Manager", response={"output": [{"type": "message", "content": "Hello"}]}))
-        # This might create a message step or just be the end.
-        # If LLM ended without tool calls, it usually means it produced a message.
-        # Let's check if we have a new step or if it updated the last thinking step (if we had one).
-        # In this flow, we had Thinking -> Tool -> (Back to Thinking usually) -> Message.
-        
-        # Let's simulate the "Back to Thinking" part
-        manager.handle_event(create_event("llm_started_stream_event", source="Manager"))
-        self.assertEqual(len(manager.steps), 3)
-        self.assertEqual(manager.steps[2].type, StepType.THINKING)
-        
-        # Now LLM ends with message
-        manager.handle_event(create_event("llm_ended_stream_event", source="Manager", response={"output": [{"type": "message", "content": "Hello"}]}))
-        self.assertEqual(manager.steps[2].status, StepStatus.COMPLETED)
+        # Setup Registry with the handlers we want to test
+        self.registry = EventHandlerRegistry()
+        self.registry.register(ThinkingEventHandler())
+        self.registry.register(GenericToolEventHandler())
+        self.registry.register(LifecycleEventHandler())
 
-        # 7. Agent Ends
-        manager.handle_event(create_event("agent_ended_stream_event", source="Manager"))
-        self.assertEqual(len(manager.steps), 4)
-        self.assertEqual(manager.steps[3].type, StepType.FINISHED)
-        self.assertEqual(manager.steps[3].status, StepStatus.COMPLETED)
+    def handle_event(self, event: AgentEvent):
+        handlers = self.registry.get_handlers(event)
+        for handler in handlers:
+            handler.handle(event, self.context)
+
+    def test_linear_flow(self):
+        # 1. Thinking Starts
+        self.handle_event(create_event("llm_started_stream_event"))
+        self.assertEqual(len(self.steps), 1)
+        self.assertEqual(self.steps[0].type, StepType.THINKING)
+        self.assertEqual(self.steps[0].status, StepStatus.RUNNING)
+        
+        # 1.5 Thinking Ends (triggers tool call usually)
+        self.handle_event(create_event("llm_ended_stream_event"))
+        self.assertEqual(self.steps[0].status, StepStatus.COMPLETED)
+
+        # 2. Tool Use (Generic)
+        # Should start a tool step
+        self.handle_event(create_event("tool_started_stream_event", tool={"name": "execute_step"}, span_id="span1"))
+        
+        self.assertEqual(len(self.steps), 2)
+        self.assertEqual(self.steps[1].type, StepType.TOOL)
+        self.assertEqual(self.steps[1].title, "Executing step")
+        self.assertEqual(self.steps[1].status, StepStatus.RUNNING)
+        
+        # 3. Tool Ends
+        self.handle_event(create_event("tool_ended_stream_event", tool={"name": "execute_step"}, result="Done", span_id="span1"))
+        self.assertEqual(self.steps[1].status, StepStatus.COMPLETED)
+        
+        # 4. Back to Thinking
+        self.handle_event(create_event("llm_started_stream_event"))
+        self.assertEqual(len(self.steps), 3)
+        self.assertEqual(self.steps[2].type, StepType.THINKING)
+        self.assertEqual(self.steps[2].status, StepStatus.RUNNING)
+        
+        # 5. Agent Ends
+        self.handle_event(create_event("agent_ended_stream_event"))
+        self.assertEqual(len(self.steps), 4)
+        self.assertEqual(self.steps[2].status, StepStatus.COMPLETED) # Last thinking done
+        self.assertEqual(self.steps[3].type, StepType.FINISHED)
+        self.assertEqual(self.steps[3].status, StepStatus.COMPLETED)
 
     def test_custom_tool_map(self):
-        custom_map = {"execute_step": "Running the Step"}
-        manager = StepManager(tool_title_map=custom_map)
-        
-        # Start agent
-        manager.handle_event(create_event("agent_started_stream_event", source="Manager"))
+        self.context.tool_title_map["execute_step"] = "Running the Step"
         
         # Tool start
-        manager.handle_event(create_event("tool_started_stream_event", source="Manager", tool={"name": "execute_step"}))
+        self.handle_event(create_event("tool_started_stream_event", tool={"name": "execute_step"}))
         
-        self.assertEqual(manager.steps[0].title, "Running the Step")
+        self.assertEqual(self.steps[0].title, "Running the Step")
 
 if __name__ == '__main__':
     unittest.main()
