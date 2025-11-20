@@ -130,7 +130,7 @@ class StepManager:
                 StepType.TOOL, 
                 title, 
                 data={
-                    "tool_type": "code_interpreter" if tool_name == "code_interpreter" else "generic",
+                    "tool_type": "generic",
                     "tool_name": tool_name,
                     "arguments": event.data.get("arguments"),
                     "call_id": event.data.get("tool_call_id")
@@ -201,23 +201,17 @@ class StepManager:
                     target_step.data.update(event.data)
                     
                     # If this was a code interpreter step, ensure 'outputs' is populated from 'result' if needed
-                    if target_step.data.get("tool_type") == "code_interpreter" or target_step.data.get("tool_name") == "code_interpreter":
+                    if target_step.data.get("tool_type") == "code_interpreter":
                         result = event.data.get("result")
-                        print(f"DEBUG: Code Interpreter Step Found. Result: {result}")
-                        print(f"DEBUG: Current Outputs: {target_step.data.get('outputs')}")
-                        
+                        print(f"  Code interpreter result: {result}")
                         # If we didn't have outputs before, use result
                         if result:
                             if not target_step.data.get("outputs"):
                                 target_step.data["outputs"] = [result]
-                                print("DEBUG: Set initial outputs from result")
                             elif isinstance(target_step.data["outputs"], list) and result not in target_step.data["outputs"]:
                                 target_step.data["outputs"].append(result)
-                                print("DEBUG: Appended result to outputs")
                             
                             print(f"  Updated outputs: {target_step.data['outputs']}")
-                    else:
-                        print(f"DEBUG: Step type is {target_step.data.get('tool_type')}, not code_interpreter")
                             
                 affected_steps.append(target_step)
 
