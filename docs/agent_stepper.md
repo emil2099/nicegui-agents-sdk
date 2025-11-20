@@ -29,6 +29,23 @@ stepper = AgentStepper()
 await stepper.handle_event(event)
 ```
 
+## Configuration
+
+The `AgentStepper` accepts optional parameters to customize its behavior:
+
+- **`tool_title_map`** (`Dict[str, str]`): A dictionary mapping tool names (as they appear in events) to human-readable titles.
+- **`hidden_tool_details`** (`List[str]`): A list of tool names whose details (arguments/outputs) should be hidden by default in the UI, showing only the header.
+
+```python
+stepper = AgentStepper(
+    tool_title_map={
+        "execute_step": "Executing Research",
+        "web_search": "Searching Web"
+    },
+    hidden_tool_details=["execute_step"]
+)
+```
+
 ## Adding Custom Tools
 
 To add support for a new tool, you don't need to touch the core library. Just create a new file (e.g., `my_tool.py`) and register your handler and renderer.
