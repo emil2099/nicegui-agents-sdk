@@ -13,14 +13,11 @@ from agentic.core.events import EventPublisher
 from agentic.workflows.plan_execute import run_plan_execute
 from components.agent_stepper import AgentStepper
 from components.agent_logger import AgentLogger
-from ui_components.agent_stepper_static import AgentStepperStatic
 
 BASE_DIR = Path(__file__).parent
-STYLE_PATH = BASE_DIR / 'style.css'
 
-app.add_static_file(local_file=STYLE_PATH, url_path='/style.css')
+app.add_static_file(local_file='style.css', url_path='/style.css')
 ui.add_head_html('<link rel="stylesheet" href="/style.css">', shared=True)
-ui.query('.nicegui-content').classes('p-0 gap-0')
 ui.colors(primary="#000000")
 ui.button.default_props('unelevated')
 ui.card.default_props('flat bordered')
@@ -89,10 +86,6 @@ with ui.column().classes('w-full items-center justify-center px-4 pt-16 box-bord
         hidden_tool_details=["execute_step"]
     )
 
-    # 2b. Static Stepper (for comparison)
-    ui.label("Static Mock (for comparison):").classes('text-xs text-gray-500 mt-4')
-    static_stepper = AgentStepperStatic()
-
     # 3. Response Area
     with ui.card().tight().classes('w-full max-w-xl'):
         with ui.card_section().classes('w-full'):
@@ -101,7 +94,7 @@ with ui.column().classes('w-full items-center justify-center px-4 pt-16 box-bord
 
     # 4. Full Log
     with ui.expansion('Event Log', icon='o_list').classes('w-full max-w-xl'):
-        event_logger = AgentLogger(ui.log(max_lines=200).classes('w-full min-h-[12rem] text-xs'))
+        event_logger = AgentLogger(max_lines=200).classes('w-full min-h-[12rem] text-xs')
         event_logger.push("No events yet.")
 
 ui.run(title="Mini agent demo")

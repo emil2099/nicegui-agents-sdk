@@ -1,9 +1,10 @@
 .shimmer {
-  color: #000; /* fallback */
+  color: #000;
+  /* fallback */
 
   /* two-layer gradient: black base + moving white highlight */
   background-image:
-    linear-gradient(135deg, transparent 25%, rgba(255,255,255,0.8) 50%, transparent 75%),
+    linear-gradient(135deg, transparent 25%, rgba(255, 255, 255, 0.8) 50%, transparent 75%),
     linear-gradient(#000, #000);
   background-size: 200% 100%, 100% 100%;
   background-position: 0 0, 0 0;
@@ -17,16 +18,28 @@
 }
 
 @keyframes shimmer {
-  from { background-position: 150% 0, 0 0; }
-  to   { background-position: -150% 0, 0 0; }
+  from {
+    background-position: 150% 0, 0 0;
+  }
+
+  to {
+    background-position: -150% 0, 0 0;
+  }
 }
 
 .gradient-card {
   /* border-radius: 10px; */
   border: 1px solid transparent;
   background-image:
-    linear-gradient(#fff, #fff), /* card face */
-    linear-gradient(135deg, #8a5cff, #3cc1c7); /* border */
+    linear-gradient(#fff, #fff),
+    /* card face */
+    linear-gradient(135deg, #8a5cff, #3cc1c7);
+  /* border */
   background-origin: padding-box, border-box;
   background-clip: padding-box, border-box;
+}
+
+:root {
+  --nicegui-default-padding: 0rem;
+  --nicegui-default-gap: 0rem;
 }

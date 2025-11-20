@@ -44,7 +44,7 @@ class AgentStepper(ui.list):
     Uses registry pattern for extensibility.
     """
 
-    def __init__(self, tool_title_map: Optional[Dict[str, str]] = None, hidden_tool_details: List[str] = None) -> None:
+    def __init__(self, tool_title_map: Optional[Dict[str, str]] = None, hidden_tool_details: List[str] = None, stepper_open = False) -> None:
         super().__init__()
         
         # Initialize Registries
@@ -64,7 +64,7 @@ class AgentStepper(ui.list):
         self.props('dense').classes('w-full max-w-xl gap-0 p-0')
         
         with self:
-            self.expansion = ui.expansion().props('dense').classes('w-full')
+            self.expansion = ui.expansion(value=stepper_open).props('dense').classes('w-full')
             
             with self.expansion.add_slot('header'):
                 self._build_header()
@@ -112,7 +112,6 @@ class AgentStepper(ui.list):
                 self.body_container.clear()
                 self.step_ui_map.clear()
                 self.steps.clear()
-                self.expansion.open()
             
             # Update header for start
             if event.source == self._main_agent_name:

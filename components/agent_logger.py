@@ -4,13 +4,11 @@ from typing import Any
 from nicegui import ui
 from agentic.core.events import AgentEvent
 
-class AgentLogger:
+class AgentLogger(ui.log):
     """Component for logging agent events to a NiceGUI log element."""
     
-    def __init__(self, log_element: ui.log, wrap: bool = True):
-        self.log_element = log_element
-        if wrap:
-            self.log_element.style('white-space: pre-wrap')
+    def __init__(self, max_lines: int | None = None):
+        super().__init__(max_lines=max_lines)
 
     def _stringify(self, value: Any) -> str:
         if hasattr(value, "name"):
@@ -30,10 +28,5 @@ class AgentLogger:
 
     async def handle_event(self, event: AgentEvent) -> None:
         """Async handler compatible with EventPublisher."""
-        self.log_element.push(self.format_event_line(event))
+        self.push(self.format_event_line(event))
 
-    def clear(self) -> None:
-        self.log_element.clear()
-
-    def push(self, message: str) -> None:
-        self.log_element.push(message)
