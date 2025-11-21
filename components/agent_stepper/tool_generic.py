@@ -125,44 +125,70 @@ class GenericToolRenderer(StepRenderer):
                     # Title
                     ui.label(step.title).classes('text-gray-700 font-medium')
                     
-                    # Check if details should be hidden
-                    tool_name = step.data.get('tool_name', 'tool')
-                    if tool_name in self.hidden_tool_details:
-                        return
+                # Check if details should be hidden
+                tool_name = step.data.get('tool_name', 'tool')
+                if tool_name in self.hidden_tool_details:
+                    return
 
-                    # Arguments (Minimalist Function Call style)
+                # Card Container
+                with ui.column().classes('w-full border border-gray-200 rounded-lg overflow-hidden gap-0'):
+                    
+                    # Arguments Section
                     arguments = step.data.get('arguments')
                     if arguments:
-                        tool_name = step.data.get('tool_name', 'tool')
-                        
-                        # Format arguments
-                        try:
-                            if isinstance(arguments, str):
-                                parsed = json.loads(arguments)
-                                # If it's a dict, format it nicely inside the function call
-                                args_str = json.dumps(parsed, indent=2)
-                                # Indent the args to look like a function body
-                                args_str = args_str.replace('\n', '\n  ')
-                                display_code = f"{tool_name}(\n  {args_str}\n)"
-                            else:
-                                display_code = f"{tool_name}({str(arguments)})"
-                        except:
-                            display_code = f"{tool_name}({str(arguments)})"
+                        with ui.column().classes('w-full p-2 bg-gray-50/50'):
+                            ui.label("Arguments").classes('text-xs text-gray-500 font-medium')
                             
-                        # Clean, light code block (Matching Output style)
-                        with ui.element('div').classes('w-full mt-1 pl-2 border-l-2 border-gray-200'):
-                            ui.label("Function call").classes('text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1')
-                            # Use markdown for consistency and wrapping
-                            ui.markdown(f"```python\n{display_code}\n```").classes('w-full text-xs text-gray-600 font-mono [&_pre]:whitespace-pre-wrap [&_pre]:break-all')
-
-            if step.status == StepStatus.COMPLETED:
-                result = step.data.get('result', 'No result')
-                
-                # Output (Minimalist)
-                with ui.element('div').classes('w-full mt-1 pl-2 border-l-2 border-gray-200'):
-                    ui.label("Output").classes('text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1')
+                            tool_name = step.data.get('tool_name', 'tool')
+                            
+                            # Format arguments
+                            try:
+                                if isinstance(arguments, str):
+                                    parsed = json.loads(arguments)
+                                    # If it's a dict, format it nicely inside the function call
+                                    args_str = json.dumps(parsed, indent=2)
+                                    display_code = f"{tool_name}({args_str})"
+                                else:
+                                    display_code = f"{tool_name}({str(arguments)})"
+                            except:
+                                display_code = f"{tool_name}({str(arguments)})"
+                                
+                            # Clean, light code block
+                            # Changed language to javascript for better highlighting of function calls
+                            # Removed break-all to prevent weird word breaking
+                            ui.markdown(f"```javascript\n{display_code}\n```").classes('w-full text-xs text-gray-700 font-mono [&_pre]:whitespace-pre-wrap [&_pre]:bg-transparent [&_pre]:p-0')
                     
-                    result_str = str(result)
-                    # Use markdown code block for result, but cleaner
-                    # Added [&_pre]:whitespace-pre-wrap to force wrapping in the generated pre tag
-                    ui.markdown(f"```\n{result_str}\n```").classes('w-full text-xs text-gray-700 font-mono max-h-60 overflow-y-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-all')
+                    # Separator
+                    if arguments:
+                        ui.separator().classes('border-gray-200')
+
+                    # Output Section
+                    with ui.column().classes('w-full p-2 bg-white'):
+                        ui.label("Output").classes('text-xs text-gray-500 font-medium')
+                        
+                        if step.status == StepStatus.COMPLETED:
+                            result = step.data.get('result')
+                            if result:
+                                # Try to format JSON results nicely
+                                try:
+                                    if isinstance(result, str):
+                                        # Try to parse string as JSON
+                                        parsed = json.loads(result)
+                                        result_str = json.dumps(parsed, indent=2)
+                                        lang = 'json'
+                                    elif isinstance(result, (dict, list)):
+                                        result_str = json.dumps(result, indent=2)
+                                        lang = 'json'
+                                    else:
+                                        result_str = str(result)
+                                        lang = ''
+                                except:
+                                    result_str = str(result)
+                                    lang = ''
+                                    
+                                ui.markdown(f"```{lang}\n{result_str}\n```").classes('w-full text-xs text-gray-700 font-mono max-h-60 overflow-y-auto [&_pre]:whitespace-pre-wrap [&_pre]:bg-transparent [&_pre]:p-0')
+                            else:
+                                ui.label("No output").classes('text-sm text-gray-500')
+                        else:
+                             # Pending/Running
+                             ui.label("...").classes('text-sm text-gray-400 italic')

@@ -42,24 +42,31 @@ class CodeInterpreterRenderer(StepRenderer):
 
     def render(self, step: Step, container: ui.element) -> None:
         with container:
-            # Generic Tool Header Style
-            with ui.column().classes('w-full gap-1'):
-                # Title
-                ui.label('Running Code').classes('text-gray-700 font-medium')
+            # Header
+            with ui.row().classes('items-center gap-2 mb-1'):
+                ui.icon('code').classes('text-lg text-gray-600')
+                ui.label(step.title).classes('text-gray-700 font-medium')
                 
-                # Code Block (Arguments style)
+            # Card Container
+            with ui.column().classes('w-full border border-gray-200 rounded-lg overflow-hidden gap-0'):
+                
+                # Code Section (Arguments)
                 code = step.data.get('code', '')
                 if code:
-                    with ui.element('div').classes('w-full mt-1 pl-2 border-l-2 border-gray-200'):
-                        ui.label("Code").classes('text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1')
-                        ui.code(code, language='python').classes('w-full text-xs !bg-transparent !p-0 text-gray-600')
+                    with ui.column().classes('w-full p-2 bg-gray-50/50'):
+                        ui.label("Code").classes('text-xs text-gray-500 font-medium')
+                        ui.markdown(f"```python\n{code}\n```").classes('w-full text-xs text-gray-700 font-mono [&_pre]:whitespace-pre-wrap [&_pre]:bg-transparent [&_pre]:p-0')
                 
-                # Outputs (Output style)
-                outputs = step.data.get('outputs')
-                if outputs:
-                    with ui.element('div').classes('w-full mt-1 pl-2 border-l-2 border-gray-200'):
-                        ui.label("Output").classes('text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1')
-                        
+                # Separator
+                if code:
+                    ui.separator().classes('border-gray-200')
+
+                # Output Section
+                with ui.column().classes('w-full p-2 bg-white'):
+                    ui.label("Output").classes('text-xs text-gray-500 font-medium')
+                    
+                    outputs = step.data.get('outputs')
+                    if outputs:
                         for output in outputs:
                             # Handle different output types
                             content = ""
@@ -74,4 +81,9 @@ class CodeInterpreterRenderer(StepRenderer):
                                 content = str(output)
                                 
                             if content:
-                                ui.markdown(f"```\n{content}\n```").classes('w-full text-xs text-gray-700 font-mono max-h-60 overflow-y-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-all')
+                                ui.markdown(f"```\n{content}\n```").classes('w-full text-xs text-gray-700 font-mono max-h-60 overflow-y-auto [&_pre]:whitespace-pre-wrap [&_pre]:bg-transparent [&_pre]:p-0')
+                    else:
+                        if step.status == StepStatus.RUNNING:
+                             ui.label("...").classes('text-sm text-gray-400 italic')
+                        else:
+                             ui.label("No output").classes('text-sm text-gray-500')
