@@ -66,8 +66,6 @@ with ui.column().classes('w-full items-center justify-center px-4 pt-16 box-bord
                     output_area.set_content("(no response)")
             except Exception as e:
                 output_area.set_content(f"Error: {e}")
-                if event_logger:
-                    event_logger.push(f"error: {e}")
             finally:
                 ask_button.enable()
 
