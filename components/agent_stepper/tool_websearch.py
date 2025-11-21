@@ -46,12 +46,11 @@ class WebSearchRenderer(StepRenderer):
                 ui.label('Searching the web').classes('font-medium')
 
             # 2. Content Card
-            with ui.card().props('flat bordered').classes('w-full bg-gray-50 p-3'):
-                with ui.column().classes('w-full gap-2'):
-                    # Query Box
-                    with ui.row().classes('w-full items-center no-wrap gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2'):
-                        ui.icon('sym_o_search').classes('text-gray-500')
-                        ui.label(step.data.get('query', 'Searching...')).classes('text-sm text-gray-700 grow min-w-0 truncate')
+            with ui.column().classes('w-full gap-2'):
+                # Query Box
+                with ui.row().classes('w-full items-center no-wrap gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2'):
+                    ui.icon('sym_o_search').classes('text-gray-500')
+                    ui.label(step.data.get('query', 'Searching...')).classes('text-sm text-gray-700 grow min-w-0 truncate')
 
             # 3. Sources (if available)
             sources = step.data.get('sources')
